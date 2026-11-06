@@ -1,4 +1,4 @@
-import { addMonths, format, parseISO, startOfMonth, subMonths } from 'date-fns'
+import { addMonths, differenceInCalendarDays, format, parseISO, startOfMonth, subMonths } from 'date-fns'
 
 export function ymOf(iso: string) {
   return iso.slice(0, 7)
@@ -49,4 +49,15 @@ export function monthRange(ym: string) {
 /** último dia do mês em ISO */
 export function endOfYM(ym: string) {
   return monthRange(ym).end
+}
+
+/** Data (ISO) do dia `day` no mês `ym`; em meses mais curtos usa o último dia (dia 31 em fevereiro → 28/29) */
+export function dayInYM(ym: string, day: number) {
+  const last = Number(endOfYM(ym).slice(8))
+  return `${ym}-${String(Math.min(Math.max(1, day), last)).padStart(2, '0')}`
+}
+
+/** Dias de `fromISO` até `toISO` (negativo se `toISO` já passou) */
+export function daysUntil(fromISO: string, toISO: string) {
+  return differenceInCalendarDays(parseISO(toISO), parseISO(fromISO))
 }

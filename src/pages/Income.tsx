@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Briefcase, Pencil, Plus, Trash2, Wallet } from 'lucide-react'
+import { Briefcase, CalendarClock, Pencil, Plus, Trash2, Wallet } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { PageHeader } from '../components/Shell'
 import { MonthPicker } from '../components/MonthPicker'
 import { TransactionForm } from '../components/TransactionForm'
+import { UpcomingIncome } from '../components/UpcomingIncome'
+import { upcomingPayments } from '../lib/payday'
 import { Badge, Card, ColorPicker, Confirm, Dot, EmptyState, Field, Kpi, Modal, MoneyInput, ProgressBar } from '../components/ui'
 import { axisStyle, gridStroke, moneyTick, monthTick, tooltipLabelMonth, tooltipMoney, tooltipStyle } from '../components/charts'
 import { useCategories, useIncomeSources, useTransactions } from '../hooks/useData'
@@ -11,7 +13,7 @@ import { useMonth } from '../hooks/useMonth'
 import { repo } from '../data/store'
 import { INCOME_TYPE_LABEL, PALETTE, type IncomeSource, type IncomeSourceType, type Transaction } from '../db/types'
 import { incomeByTypeSeries, sumByIncomeSource } from '../lib/calc'
-import { lastMonths, ymOf } from '../lib/dates'
+import { dayInYM, lastMonths, ymOf } from '../lib/dates'
 import { fmtBRL, fmtPct, todayISO } from '../lib/format'
 
 const TYPE_COLORS: Record<IncomeSourceType, string> = {
@@ -62,6 +64,22 @@ export function IncomePage() {
     for (const mo of months) for (const [id, v] of sumByIncomeSource(txs, mo)) m.set(id, (m.get(id) ?? 0) + v / 12)
     return m
   }, [txs, ym])
+
+  const today = todayISO()
+  const events = useMemo(() => upcomingPayments(sources, txs, today), [sources, txs, today])
+  const pendingThisMonth = events.filter((e) => e.status !== 'received').reduce((s, e) => s + e.source.expectedMonthly, 0)
+
+  /** Abre o formulário de recebimento já preenchido com a fonte */
+  function launch(s: IncomeSource, date?: string) {
+    setTxDefaults({
+      type: 'income',
+      incomeSourceId: s.id,
+      categoryId: s.defaultCategoryId,
+      description: s.name,
+      amount: s.expectedMonthly,
+      date: date ?? (s.payDay ? dayInYM(ym, s.payDay) : ymOf(today) === ym ? today : `${ym}-05`),
+    })
+  }
 
   const incomeThisYear = useMemo(() => {
     const y = ym.slice(0, 4)
@@ -142,6 +160,22 @@ export function IncomePage() {
         </Card>
       </div>
 
+      {active.length > 0 && (
+        <Card
+          title="Próximos recebimentos"
+          subtitle={events.length ? `${fmtBRL(pendingThisMonth)} ainda a receber neste mês` : undefined}
+          className="mb-4"
+        >
+          {events.length === 0 ? (
+            <p className="text-sm text-muted flex items-center gap-2">
+              <CalendarClock size={16} /> Defina o dia do recebimento em cada fonte (editar → “Dia que cai”) para ver aqui quando cada uma entra.
+            </p>
+          ) : (
+            <UpcomingIncome events={events} onLaunch={(e) => launch(e.source, e.date)} />
+          )}
+        </Card>
+      )}
+
       {sources.length === 0 ? (
         <Card>
           <EmptyState
@@ -167,7 +201,10 @@ export function IncomePage() {
                       </span>
                       <div className="min-w-0">
                         <p className="font-medium truncate">{s.name}</p>
-                        <Badge color={TYPE_COLORS[s.type]}>{INCOME_TYPE_LABEL[s.type]}</Badge>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge color={TYPE_COLORS[s.type]}>{INCOME_TYPE_LABEL[s.type]}</Badge>
+                          {s.payDay && <span className="text-[11px] text-muted font-mono">todo dia {s.payDay}</span>}
+                        </div>
                       </div>
                     </div>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
@@ -190,16 +227,7 @@ export function IncomePage() {
                     <p className="text-[11px] text-muted">média 12m {fmtBRL(avg12.get(s.id) ?? 0)}{!s.active && ' · inativa'}</p>
                     <button
                       className="text-xs text-brand hover:underline cursor-pointer"
-                      onClick={() =>
-                        setTxDefaults({
-                          type: 'income',
-                          incomeSourceId: s.id,
-                          categoryId: s.defaultCategoryId,
-                          description: s.name,
-                          amount: s.expectedMonthly,
-                          date: ymOf(todayISO()) === ym ? todayISO() : `${ym}-05`,
-                        })
-                      }
+                      onClick={() => launch(s)}
                     >
                       + lançar recebimento
                     </button>
@@ -254,18 +282,34 @@ function SourceModal({ open, onClose, editing, categories }: { open: boolean; on
         <Field label="Nome">
           <input className="input" autoFocus placeholder="Ex.: Salário Acme, Sociedade Duzz, Freelas" value={form.name} onChange={(e) => set('name', e.target.value)} />
         </Field>
+        <Field label="Tipo">
+          <select className="input" value={form.type} onChange={(e) => set('type', e.target.value as IncomeSourceType)}>
+            {(Object.keys(INCOME_TYPE_LABEL) as IncomeSourceType[]).map((t) => (
+              <option key={t} value={t}>{INCOME_TYPE_LABEL[t]}</option>
+            ))}
+          </select>
+        </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Tipo">
-            <select className="input" value={form.type} onChange={(e) => set('type', e.target.value as IncomeSourceType)}>
-              {(Object.keys(INCOME_TYPE_LABEL) as IncomeSourceType[]).map((t) => (
-                <option key={t} value={t}>{INCOME_TYPE_LABEL[t]}</option>
-              ))}
-            </select>
-          </Field>
           <Field label="Valor esperado por mês">
             <MoneyInput value={form.expectedMonthly} onChange={(v) => set('expectedMonthly', v)} />
           </Field>
+          <Field label="Dia que cai (1 a 31)">
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={31}
+              className="input"
+              placeholder="Ex.: 5"
+              value={form.payDay ?? ''}
+              onChange={(e) => {
+                const n = Math.round(Number(e.target.value))
+                set('payDay', e.target.value && n ? Math.min(31, Math.max(1, n)) : undefined)
+              }}
+            />
+          </Field>
         </div>
+        <p className="text-[11px] text-muted -mt-2">Em meses mais curtos, o dia 31 vira o último dia do mês.</p>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Início">
             <input type="date" className="input" value={form.startDate ?? ''} onChange={(e) => set('startDate', e.target.value || undefined)} />
@@ -284,7 +328,7 @@ function SourceModal({ open, onClose, editing, categories }: { open: boolean; on
         </Field>
         <Field label="Cor"><ColorPicker value={form.color} onChange={(c) => set('color', c)} /></Field>
         <Field label="Observações">
-          <textarea className="input min-h-[60px]" value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)} placeholder="CNPJ, % de participação, dia de pagamento…" />
+          <textarea className="input min-h-[60px]" value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)} placeholder="CNPJ, % de participação, contato do RH…" />
         </Field>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={form.active} onChange={(e) => set('active', e.target.checked)} /> Fonte ativa

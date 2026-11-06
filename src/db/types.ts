@@ -65,6 +65,8 @@ export interface IncomeSource {
   type: IncomeSourceType
   /** valor esperado por mês */
   expectedMonthly: number
+  /** dia do mês em que o recebimento costuma cair (1-31) */
+  payDay?: number
   startDate?: string
   endDate?: string
   color: string

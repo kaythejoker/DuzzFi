@@ -17,6 +17,8 @@ import {
 import { PageHeader } from '../components/Shell'
 import { MonthPicker } from '../components/MonthPicker'
 import { TransactionForm } from '../components/TransactionForm'
+import { UpcomingIncome } from '../components/UpcomingIncome'
+import { upcomingPayments } from '../lib/payday'
 import { Badge, Card, Delta, Dot, EmptyState, Kpi, Money, ProgressBar } from '../components/ui'
 import { axisStyle, gridStroke, moneyTick, monthTick, tooltipLabelMonth, tooltipMoney, tooltipStyle } from '../components/charts'
 import {
@@ -34,7 +36,7 @@ import {
 import { useMonth } from '../hooks/useMonth'
 import { monthlySeries, netWorthSeries, pctChange, sumByCategory, sumByIncomeSource, summarizeMonth } from '../lib/calc'
 import { shiftYM, ymOf } from '../lib/dates'
-import { fmtBRL, fmtDate, fmtPct } from '../lib/format'
+import { fmtBRL, fmtDate, fmtPct, todayISO } from '../lib/format'
 
 export function DashboardPage() {
   const [ym, setYm] = useMonth()
@@ -105,6 +107,8 @@ export function DashboardPage() {
   )
 
   const hasAny = txs.length > 0
+  const today = todayISO()
+  const payEvents = useMemo(() => upcomingPayments(sources, txs, today), [sources, txs, today])
 
   return (
     <>
@@ -159,6 +163,17 @@ export function DashboardPage() {
           hint={<Delta value={pctChange(nwNow?.netWorth ?? 0, nwPrev?.netWorth ?? 0)} />}
         />
       </div>
+
+      {payEvents.length > 0 && (
+        <Card
+          title="Próximos recebimentos"
+          subtitle="Pelo dia que cada fonte de renda costuma cair"
+          action={<Link to="/rendas" className="text-xs text-brand hover:underline">Ver fontes</Link>}
+          className="mb-4"
+        >
+          <UpcomingIncome events={payEvents} />
+        </Card>
+      )}
 
       <div className="grid xl:grid-cols-3 gap-4 mb-4">
         <Card title="Receitas vs despesas" subtitle="Últimos 12 meses" className="xl:col-span-2">
