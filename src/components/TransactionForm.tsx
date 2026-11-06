@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { repo } from '../data/store'
 import type { Transaction, TxType } from '../db/types'
-import { useAccounts, useCategories, useIncomeSources } from '../hooks/useData'
+import { useAccounts, useCategories, useIncomeSources, useRecurringExpenses } from '../hooks/useData'
 import { todayISO } from '../lib/format'
 import { Field, Modal, MoneyInput, Segmented } from './ui'
 
@@ -18,6 +18,7 @@ export function TransactionForm({ open, onClose, editing, defaults }: Transactio
   const accounts = useAccounts()
   const categories = useCategories()
   const sources = useIncomeSources()
+  const bills = useRecurringExpenses()
 
   const base = useMemo<Transaction>(
     () => ({
@@ -55,7 +56,24 @@ export function TransactionForm({ open, onClose, editing, defaults }: Transactio
   }
 
   function setType(t: TxType) {
-    setForm((f) => ({ ...f, type: t, categoryId: undefined, incomeSourceId: t === 'income' ? f.incomeSourceId : undefined }))
+    setForm((f) => ({
+      ...f,
+      type: t,
+      categoryId: undefined,
+      incomeSourceId: t === 'income' ? f.incomeSourceId : undefined,
+      recurringExpenseId: t === 'expense' ? f.recurringExpenseId : undefined,
+    }))
+  }
+
+  function onBillChange(id: number | undefined) {
+    const bill = bills.find((b) => b.id === id)
+    setForm((f) => ({
+      ...f,
+      recurringExpenseId: id,
+      categoryId: f.categoryId ?? bill?.categoryId,
+      description: f.description || (bill ? bill.name : ''),
+      amount: f.amount || bill?.amount || 0,
+    }))
   }
 
   function onSourceChange(id: number | undefined) {
@@ -82,11 +100,14 @@ export function TransactionForm({ open, onClose, editing, defaults }: Transactio
       }
       if (payload.type !== 'transfer') delete payload.toAccountId
       if (payload.type !== 'income') delete payload.incomeSourceId
+      if (payload.type !== 'expense') delete payload.recurringExpenseId
       if (editing?.id) await repo.transactions.put({ ...payload, id: editing.id })
       else await repo.transactions.add(payload)
       if (andNew) {
         setForm({ ...base, type: form.type, date: form.date, accountId: form.accountId })
       } else onClose()
+    } catch (e) {
+      setError(`Não consegui salvar: ${(e as Error).message}`)
     } finally {
       setSaving(false)
     }
@@ -150,6 +171,21 @@ export function TransactionForm({ open, onClose, editing, defaults }: Transactio
               <option value="">— Nenhuma —</option>
               {sources.filter((s) => s.active).map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+
+        {form.type === 'expense' && bills.length > 0 && (
+          <Field label="Despesa fixa" hint="Vincule para marcar a conta como paga neste mês.">
+            <select
+              className="input"
+              value={form.recurringExpenseId ?? ''}
+              onChange={(e) => onBillChange(e.target.value ? Number(e.target.value) : undefined)}
+            >
+              <option value="">— Nenhuma —</option>
+              {bills.filter((b) => b.active || b.id === form.recurringExpenseId).map((b) => (
+                <option key={b.id} value={b.id}>{b.name} (dia {b.dueDay})</option>
               ))}
             </select>
           </Field>

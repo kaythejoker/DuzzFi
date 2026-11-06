@@ -77,7 +77,8 @@ export type RestoreMode = 'replace' | 'append'
 /** Campos que apontam para outra tabela, para remapear ids antigos -> novos */
 const FKS: Partial<Record<TableName, Record<string, TableName>>> = {
   incomeSources: { defaultCategoryId: 'categories' },
-  transactions: { categoryId: 'categories', accountId: 'accounts', toAccountId: 'accounts', incomeSourceId: 'incomeSources' },
+  recurringExpenses: { categoryId: 'categories', accountId: 'accounts' },
+  transactions: { categoryId: 'categories', accountId: 'accounts', toAccountId: 'accounts', incomeSourceId: 'incomeSources', recurringExpenseId: 'recurringExpenses' },
   investmentMovements: { investmentId: 'investments' },
   investmentSnapshots: { investmentId: 'investments' },
   assetValuations: { assetId: 'assets' },

@@ -9,6 +9,7 @@ import type {
   Investment,
   InvestmentMovement,
   InvestmentSnapshot,
+  RecurringExpense,
   Transaction,
 } from '../db/types'
 
@@ -17,6 +18,7 @@ import type {
 export interface Tables {
   accounts: Account
   categories: Category
+  recurringExpenses: RecurringExpense
   transactions: Transaction
   incomeSources: IncomeSource
   investments: Investment
@@ -33,6 +35,7 @@ export const TABLE_NAMES: TableName[] = [
   'accounts',
   'categories',
   'incomeSources',
+  'recurringExpenses',
   'transactions',
   'investments',
   'investmentMovements',
@@ -44,6 +47,7 @@ export const TABLE_NAMES: TableName[] = [
 const DB_NAME: Record<TableName, string> = {
   accounts: 'accounts',
   categories: 'categories',
+  recurringExpenses: 'recurring_expenses',
   transactions: 'transactions',
   incomeSources: 'income_sources',
   investments: 'investments',
@@ -55,9 +59,10 @@ const DB_NAME: Record<TableName, string> = {
 
 /** Tabelas cujas linhas mudam quando uma linha desta tabela é excluída (FK set null / cascade) */
 const DELETE_EFFECTS: Partial<Record<TableName, TableName[]>> = {
-  accounts: ['transactions'],
-  categories: ['transactions', 'incomeSources'],
+  accounts: ['transactions', 'recurringExpenses'],
+  categories: ['transactions', 'incomeSources', 'recurringExpenses'],
   incomeSources: ['transactions'],
+  recurringExpenses: ['transactions'],
   investments: ['investmentMovements', 'investmentSnapshots'],
   assets: ['assetValuations'],
 }
@@ -102,6 +107,7 @@ type State = { [K in TableName]: Tables[K][] } & { status: 'idle' | 'loading' | 
 const emptyState = (): State => ({
   accounts: [],
   categories: [],
+  recurringExpenses: [],
   transactions: [],
   incomeSources: [],
   investments: [],
@@ -283,6 +289,7 @@ function table<K extends TableName>(name: K) {
 export const repo = {
   accounts: table('accounts'),
   categories: table('categories'),
+  recurringExpenses: table('recurringExpenses'),
   transactions: table('transactions'),
   incomeSources: table('incomeSources'),
   investments: table('investments'),

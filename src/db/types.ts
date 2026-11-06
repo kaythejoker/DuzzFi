@@ -41,11 +41,29 @@ export interface Transaction {
   /** para transferências: conta destino */
   toAccountId?: number
   incomeSourceId?: number
+  /** despesa fixa que este lançamento paga (no mês do lançamento) */
+  recurringExpenseId?: number
   notes?: string
   tags?: string[]
   /** hash único usado para evitar importar o mesmo lançamento duas vezes */
   importHash?: string
   createdAt: string
+}
+
+/** Despesa fixa que se repete todo mês (aluguel, internet, academia...) */
+export interface RecurringExpense {
+  id?: number
+  name: string
+  amount: number
+  /** dia do vencimento (1-31; meses curtos usam o último dia) */
+  dueDay: number
+  categoryId?: number
+  accountId?: number
+  color: string
+  notes?: string
+  active: boolean
+  startDate?: string
+  endDate?: string
 }
 
 export type IncomeSourceType =

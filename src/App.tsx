@@ -3,6 +3,7 @@ import { Shell } from './components/Shell'
 import { DashboardPage } from './pages/Dashboard'
 import { TransactionsPage } from './pages/Transactions'
 import { CategoriesPage } from './pages/Categories'
+import { RecurringPage } from './pages/Recurring'
 import { IncomePage } from './pages/Income'
 import { InvestmentsPage } from './pages/Investments'
 import { NetWorthPage } from './pages/NetWorth'
@@ -18,6 +19,7 @@ const router = createHashRouter([
       { index: true, element: <DashboardPage /> },
       { path: 'transacoes', element: <TransactionsPage /> },
       { path: 'categorias', element: <CategoriesPage /> },
+      { path: 'fixas', element: <RecurringPage /> },
       { path: 'rendas', element: <IncomePage /> },
       { path: 'investimentos', element: <InvestmentsPage /> },
       { path: 'patrimonio', element: <NetWorthPage /> },

@@ -4,8 +4,8 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import { PageHeader } from '../components/Shell'
 import { MonthPicker } from '../components/MonthPicker'
 import { TransactionForm } from '../components/TransactionForm'
-import { UpcomingIncome } from '../components/UpcomingIncome'
-import { upcomingPayments } from '../lib/payday'
+import { ScheduleGrid } from '../components/Schedule'
+import { incomeItems, upcomingPayments } from '../lib/payday'
 import { Badge, Card, ColorPicker, Confirm, Dot, EmptyState, Field, Kpi, Modal, MoneyInput, ProgressBar } from '../components/ui'
 import { axisStyle, gridStroke, moneyTick, monthTick, tooltipLabelMonth, tooltipMoney, tooltipStyle } from '../components/charts'
 import { useCategories, useIncomeSources, useTransactions } from '../hooks/useData'
@@ -67,7 +67,7 @@ export function IncomePage() {
 
   const today = todayISO()
   const events = useMemo(() => upcomingPayments(sources, txs, today), [sources, txs, today])
-  const pendingThisMonth = events.filter((e) => e.status !== 'received').reduce((s, e) => s + e.source.expectedMonthly, 0)
+  const pendingThisMonth = events.filter((e) => e.status !== 'done').reduce((s, e) => s + e.item.expectedMonthly, 0)
 
   /** Abre o formulário de recebimento já preenchido com a fonte */
   function launch(s: IncomeSource, date?: string) {
@@ -171,7 +171,12 @@ export function IncomePage() {
               <CalendarClock size={16} /> Defina o dia do recebimento em cada fonte (editar → “Dia que cai”) para ver aqui quando cada uma entra.
             </p>
           ) : (
-            <UpcomingIncome events={events} onLaunch={(e) => launch(e.source, e.date)} />
+            <ScheduleGrid
+              items={incomeItems(events, (e) => launch(e.item, e.date))}
+              doneLabel="recebido"
+              actionLabel="lançar"
+              lateHint="Nenhum recebimento vinculado a esta fonte no mês."
+            />
           )}
         </Card>
       )}

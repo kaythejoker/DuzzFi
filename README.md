@@ -29,7 +29,8 @@ Na primeira entrada o app cria as categorias padrão e uma conta "Conta principa
 | Dashboard | Resumo do mês: receitas, despesas, saldo, aportes, patrimônio, gastos por categoria, orçamento e últimos lançamentos |
 | Transações | Todos os lançamentos, com busca, filtros, edição e recategorização em massa |
 | Categorias & Orçamento | Categorias de gasto/receita, limite mensal por categoria e palavras-chave para categorizar extratos automaticamente |
-| Fontes de renda | CLT, PJ, sociedade, empresa, freela, dividendos, aluguel… com valor esperado vs recebido |
+| Despesas fixas | Aluguel, contas e assinaturas com dia de vencimento: o que vence, o que já foi pago no mês e o peso na renda |
+| Fontes de renda | CLT, PJ, sociedade, empresa, freela, dividendos, aluguel… com valor esperado vs recebido e dia em que cai |
 | Investimentos | Carteira por tipo, aportes, resgates, proventos, atualização do valor de mercado e rentabilidade |
 | Patrimônio & Contas | Contas bancárias, participações em empresas/sociedades (com % e valuation), bens e dívidas |
 | Crescimento | Evolução do patrimônio líquido, renda por tipo de fonte, taxa de poupança, aportes e resumo por ano |

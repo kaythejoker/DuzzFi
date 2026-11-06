@@ -17,8 +17,8 @@ import {
 import { PageHeader } from '../components/Shell'
 import { MonthPicker } from '../components/MonthPicker'
 import { TransactionForm } from '../components/TransactionForm'
-import { UpcomingIncome } from '../components/UpcomingIncome'
-import { upcomingPayments } from '../lib/payday'
+import { ScheduleGrid } from '../components/Schedule'
+import { billItems, incomeItems, upcomingBills, upcomingPayments } from '../lib/payday'
 import { Badge, Card, Delta, Dot, EmptyState, Kpi, Money, ProgressBar } from '../components/ui'
 import { axisStyle, gridStroke, moneyTick, monthTick, tooltipLabelMonth, tooltipMoney, tooltipStyle } from '../components/charts'
 import {
@@ -31,6 +31,7 @@ import {
   useInvestmentMovements,
   useInvestmentSnapshots,
   useInvestments,
+  useRecurringExpenses,
   useTransactions,
 } from '../hooks/useData'
 import { useMonth } from '../hooks/useMonth'
@@ -49,6 +50,7 @@ export function DashboardPage() {
   const snapshots = useInvestmentSnapshots()
   const assets = useAssets()
   const valuations = useAssetValuations()
+  const bills = useRecurringExpenses()
   const catById = useById(categories)
   const srcById = useById(sources)
   const [formOpen, setFormOpen] = useState(false)
@@ -109,6 +111,8 @@ export function DashboardPage() {
   const hasAny = txs.length > 0
   const today = todayISO()
   const payEvents = useMemo(() => upcomingPayments(sources, txs, today), [sources, txs, today])
+  const billEvents = useMemo(() => upcomingBills(bills, txs, today), [bills, txs, today])
+  const billsPending = billEvents.filter((e) => e.status !== 'done').reduce((s, e) => s + e.item.amount, 0)
 
   return (
     <>
@@ -171,7 +175,18 @@ export function DashboardPage() {
           action={<Link to="/rendas" className="text-xs text-brand hover:underline">Ver fontes</Link>}
           className="mb-4"
         >
-          <UpcomingIncome events={payEvents} />
+          <ScheduleGrid items={incomeItems(payEvents)} doneLabel="recebido" />
+        </Card>
+      )}
+
+      {billEvents.length > 0 && (
+        <Card
+          title="Próximas contas"
+          subtitle={`${fmtBRL(billsPending)} em despesas fixas ainda a pagar neste mês`}
+          action={<Link to="/fixas" className="text-xs text-brand hover:underline">Ver despesas fixas</Link>}
+          className="mb-4"
+        >
+          <ScheduleGrid items={billItems(billEvents)} doneLabel="pago" />
         </Card>
       )}
 
