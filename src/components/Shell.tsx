@@ -37,7 +37,7 @@ export function Shell() {
       {/* Sidebar */}
       <aside
         className={clsx(
-          'fixed inset-y-0 left-0 z-40 w-64 bg-madrugada border-r border-border flex flex-col transition-transform lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen',
+          'fixed inset-y-0 left-0 z-40 w-64 bg-madrugada border-r border-border flex flex-col transition-transform lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen pt-safe pb-safe',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
       >
@@ -88,13 +88,15 @@ export function Shell() {
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col glow-top">
-        <header className="lg:hidden flex items-center gap-3 h-14 px-4 border-b border-border bg-madrugada/80 backdrop-blur sticky top-0 z-20">
-          <button className="btn-ghost p-2" onClick={() => setOpen(true)} aria-label="Menu">
-            <Menu size={20} />
-          </button>
-          <BrandMark />
+        <header className="lg:hidden pt-safe border-b border-border bg-madrugada/80 backdrop-blur sticky top-0 z-20">
+          <div className="flex items-center gap-3 h-14 px-4">
+            <button className="btn-ghost p-2" onClick={() => setOpen(true)} aria-label="Menu">
+              <Menu size={20} />
+            </button>
+            <BrandMark />
+          </div>
         </header>
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1400px] w-full mx-auto">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 pb-[calc(1rem+env(safe-area-inset-bottom))] max-w-[1400px] w-full mx-auto">
           <Outlet />
         </main>
       </div>

@@ -103,9 +103,13 @@ export function Modal({
   }, [open, onClose])
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className={clsx('card w-full shadow-2xl max-h-[92vh] flex flex-col', width)}
+        className={clsx(
+          // no celular abre como folha de baixo, respeitando a barra de início do iPhone
+          'card w-full shadow-2xl max-h-[92dvh] flex flex-col rounded-b-none rounded-t-2xl sm:rounded-xl pb-safe sm:pb-0',
+          width,
+        )}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between px-5 py-4 border-b border-border">
