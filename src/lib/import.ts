@@ -7,6 +7,8 @@ export interface ParsedRow {
   description: string
   amount: number // positivo
   type: 'expense' | 'income'
+  /** texto complementar do banco (ex.: coluna "Histórico": "Pix enviado", "Compra no débito") */
+  memo?: string
   raw: string
   fitid?: string
 }
@@ -15,6 +17,8 @@ export interface CsvColumns {
   date: number
   description: number
   amount: number
+  /** coluna opcional com o tipo do lançamento (ex.: "Histórico") */
+  memo?: number
   /** coluna opcional de crédito separada (alguns bancos separam débito/crédito) */
   credit?: number
 }
@@ -60,22 +64,53 @@ function iso(y: string, m: string, d: string) {
   return `${y}-${mm}-${dd}`
 }
 
-export function hashRow(date: string, amount: number, description: string, fitid?: string) {
-  const base = fitid ? `fitid:${fitid}` : `${date}|${amount.toFixed(2)}|${normalize(description).replace(/\s+/g, ' ')}`
+/**
+ * Identificador estável de um lançamento do extrato, usado para não importar o mesmo lançamento duas vezes.
+ * Leva em conta o sinal (um estorno não colide com a compra original) e o histórico.
+ * Lançamentos idênticos no mesmo arquivo (ex.: dois Pix iguais no mesmo dia) são diferenciados
+ * pela ordem de ocorrência: o 2º recebe "#2", o 3º "#3"...
+ */
+export function hashRows(rows: ParsedRow[]): string[] {
+  const seen = new Map<string, number>()
+  return rows.map((r) => {
+    const signed = r.type === 'expense' ? -r.amount : r.amount
+    const clean = (s: string | undefined) => normalize(s ?? '').replace(/\s+/g, ' ')
+    const base = r.fitid ? `fitid:${r.fitid}` : `${r.date}|${signed.toFixed(2)}|${clean(r.description)}|${clean(r.memo)}`
+    const n = (seen.get(base) ?? 0) + 1
+    seen.set(base, n)
+    return n === 1 ? hashString(base) : `${hashString(base)}#${n}`
+  })
+}
+
+function hashString(base: string) {
   let h = 0
   for (let i = 0; i < base.length; i++) h = (Math.imul(31, h) + base.charCodeAt(i)) | 0
   return `${(h >>> 0).toString(36)}-${base.length}`
 }
 
-/** Sugere categoria pelas palavras-chave cadastradas */
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * Palavra-chave curta (até 4 letras, ex.: "bar", "das", "iof") só casa com a palavra inteira,
+ * para "bar" não pegar "Barra" nem "das" pegar "Bebidas". As maiores casam em qualquer parte
+ * ("restaurante" pega "Rangoorestaurante").
+ */
+export function keywordMatches(normalizedText: string, keyword: string) {
+  const k = normalize(keyword)
+  if (!k) return false
+  if (k.length > 4) return normalizedText.includes(k)
+  return new RegExp(`(^|[^a-z0-9])${escapeRe(k)}($|[^a-z0-9])`).test(normalizedText)
+}
+
+/** Sugere categoria pelas palavras-chave cadastradas (a palavra-chave mais longa vence) */
 export function suggestCategory(description: string, type: 'expense' | 'income', categories: Category[]): number | undefined {
   const d = normalize(description)
   let best: { id: number; len: number } | undefined
   for (const c of categories) {
     if (c.type !== type || c.archived || !c.id || !c.keywords) continue
     for (const kw of c.keywords) {
-      const k = normalize(kw)
-      if (k && d.includes(k) && (!best || k.length > best.len)) best = { id: c.id, len: k.length }
+      const len = normalize(kw).length
+      if (keywordMatches(d, kw) && (!best || len > best.len)) best = { id: c.id, len }
     }
   }
   return best?.id
@@ -161,7 +196,9 @@ function guessColumns(headers: string[], rows: string[][]): CsvColumns {
     }
     description = best
   }
-  return { date: Math.max(0, date), description: Math.max(0, description), amount: Math.max(0, amount), credit }
+  // segunda coluna de texto (ex.: "Histórico" ao lado de "Descrição")
+  const memo = find(DESC_HINTS, [date, amount, description, credit ?? -1])
+  return { date: Math.max(0, date), description: Math.max(0, description), amount: Math.max(0, amount), credit, memo: memo === -1 ? undefined : memo }
 }
 
 function colWhere(rows: string[][], pred: (c: string) => boolean, exclude: number[] = []) {
@@ -190,10 +227,14 @@ export function rowsFromCsv(preview: CsvPreview, cols: CsvColumns, invertSign: b
     if (/\bD\b/.test(row) && !/\bC\b/.test(row) && amount > 0 && cols.credit == null && /\s[DC]\s*$/.test(r[cols.amount] ?? '')) amount = -amount
     if (invertSign) amount = -amount
     if (!amount) continue
-    const description = (r[cols.description] ?? '').replace(/\s+/g, ' ').trim() || 'Sem descrição'
+    const clean = (s: string | undefined) => (s ?? '').replace(/\s+/g, ' ').trim()
+    const memo = cols.memo != null ? clean(r[cols.memo]) : ''
+    // sem descrição (ex.: "Antecipação FGTS"), o histórico vira a descrição
+    const description = clean(r[cols.description]) || memo || 'Sem descrição'
     out.push({
       date,
       description,
+      memo: memo && memo !== description ? memo : undefined,
       amount: Math.abs(amount),
       type: amount < 0 ? 'expense' : 'income',
       raw: r.join(preview.delimiter),

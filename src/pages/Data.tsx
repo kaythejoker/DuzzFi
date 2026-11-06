@@ -5,7 +5,7 @@ import { Badge, Card, Confirm, Field, Modal } from '../components/ui'
 import { useAccounts, useCategories, useIncomeSources } from '../hooks/useData'
 import { repo } from '../data/store'
 import type { Transaction } from '../db/types'
-import { hashRow, isOfx, parseOfx, previewCsv, rowsFromCsv, suggestCategory, type CsvColumns, type CsvPreview, type ParsedRow } from '../lib/import'
+import { hashRows, isOfx, parseOfx, previewCsv, rowsFromCsv, suggestCategory, type CsvColumns, type CsvPreview, type ParsedRow } from '../lib/import'
 import { seedIfNeeded } from '../db/seed'
 import { exportBackupJson, exportInvestmentsCsv, exportTransactionsCsv, restoreBackup, wipeAll, type Backup, type RestoreMode } from '../lib/export'
 import { fmtBRL, fmtDate } from '../lib/format'
@@ -75,19 +75,17 @@ export function DataPage() {
 
   async function stage() {
     setError('')
-    const hashes = parsedRows.map((r) => hashRow(r.date, r.amount, r.description, r.fitid))
+    const hashes = hashRows(parsedRows)
     const existing = new Set(repo.transactions.rows().map((t) => t.importHash).filter(Boolean))
-    const seen = new Set<string>()
     const rows: StagedRow[] = parsedRows.map((r, i) => {
       const hash = hashes[i]
-      const dup = existing.has(hash) || seen.has(hash)
-      seen.add(hash)
+      const dup = existing.has(hash)
       return {
         ...r,
         hash,
         duplicate: dup,
         include: !dup,
-        categoryId: suggestCategory(r.description, r.type, categories),
+        categoryId: suggestCategory(`${r.description} ${r.memo ?? ''}`, r.type, categories),
       }
     })
     setStaged(rows)
@@ -104,6 +102,7 @@ export function DataPage() {
           amount: r.amount,
           type: r.type,
           description: r.description,
+          notes: r.memo,
           categoryId: r.categoryId,
           incomeSourceId: r.type === 'income' ? r.incomeSourceId : undefined,
           accountId: effectiveAccount,
@@ -197,7 +196,7 @@ export function DataPage() {
               {csv && cols && (
                 <div className="rounded-xl border border-border p-3">
                   <p className="text-xs font-medium text-muted mb-2">Mapeamento de colunas (detectado automaticamente, ajuste se precisar)</p>
-                  <div className="grid sm:grid-cols-4 gap-3">
+                  <div className="grid sm:grid-cols-5 gap-3">
                     {(['date', 'description', 'amount'] as const).map((k) => (
                       <Field key={k} label={k === 'date' ? 'Data' : k === 'description' ? 'Descrição' : 'Valor'}>
                         <select className="input" value={cols[k]} onChange={(e) => setCols({ ...cols, [k]: Number(e.target.value) })}>
@@ -205,6 +204,12 @@ export function DataPage() {
                         </select>
                       </Field>
                     ))}
+                    <Field label="Histórico (opcional)">
+                      <select className="input" value={cols.memo ?? ''} onChange={(e) => setCols({ ...cols, memo: e.target.value ? Number(e.target.value) : undefined })}>
+                        <option value="">— não há —</option>
+                        {csv.headers.map((h, i) => <option key={i} value={i}>{h || `Coluna ${i + 1}`}</option>)}
+                      </select>
+                    </Field>
                     <Field label="Crédito (se separado)">
                       <select className="input" value={cols.credit ?? ''} onChange={(e) => setCols({ ...cols, credit: e.target.value ? Number(e.target.value) : undefined })}>
                         <option value="">— não há —</option>
@@ -224,7 +229,10 @@ export function DataPage() {
                       {parsedRows.slice(0, 15).map((r, i) => (
                         <tr key={i}>
                           <td className="text-muted whitespace-nowrap">{fmtDate(r.date)}</td>
-                          <td className="truncate max-w-[320px]">{r.description}</td>
+                          <td className="max-w-[320px]">
+                            <p className="truncate">{r.description}</p>
+                            {r.memo && <p className="text-[11px] text-muted truncate">{r.memo}</p>}
+                          </td>
                           <td className={`text-right tabular-nums ${r.type === 'expense' ? 'text-expense' : 'text-income'}`}>{r.type === 'expense' ? '- ' : '+ '}{fmtBRL(r.amount)}</td>
                         </tr>
                       ))}
@@ -293,6 +301,7 @@ export function DataPage() {
                     <td className="text-muted whitespace-nowrap">{fmtDate(r.date)}</td>
                     <td>
                       <p className="truncate max-w-[300px]">{r.description}</p>
+                      {r.memo && <p className="text-[11px] text-muted truncate max-w-[300px]">{r.memo}</p>}
                       {r.duplicate && <Badge className="bg-warn/15 text-warn">já importado</Badge>}
                     </td>
                     <td className={`text-right tabular-nums whitespace-nowrap ${r.type === 'expense' ? 'text-expense' : 'text-income'}`}>{r.type === 'expense' ? '- ' : '+ '}{fmtBRL(r.amount)}</td>
