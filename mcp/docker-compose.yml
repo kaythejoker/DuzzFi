@@ -1,0 +1,42 @@
+# Duzz Finance na VPS: MCP + voz (Node), Whisper local (Python) e HTTPS automático (Caddy)
+#   cd mcp && docker compose up -d --build
+services:
+  mcp:
+    build: ./server
+    env_file: .env
+    environment:
+      WHISPER_URL: http://whisper:8000
+      PORT: "8787"
+    depends_on:
+      - whisper
+    restart: unless-stopped
+
+  whisper:
+    build: ./whisper
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_THREADS: ${WHISPER_THREADS:-0}
+    volumes:
+      - whisper-models:/models
+    restart: unless-stopped
+    # sem "ports": o Whisper só é acessível de dentro da VPS
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?defina DOMAIN no .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - mcp
+    restart: unless-stopped
+
+volumes:
+  whisper-models:
+  caddy-data:
+  caddy-config:

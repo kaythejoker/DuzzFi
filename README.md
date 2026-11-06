@@ -52,6 +52,10 @@ Na primeira entrada o app cria as categorias padrão e uma conta "Conta principa
 - **Empresas e sociedades** entram no patrimônio pela sua participação: valuation × %.
 - **Patrimônio líquido** = contas + investimentos + empresas e bens − dívidas (incluindo saldo negativo de cartão de crédito).
 
+## Lançar por voz (MCP)
+
+A pasta [`mcp/`](mcp/README.md) tem um servidor MCP com Whisper local para rodar numa VPS. Com ele dá para lançar gastos falando no iPhone (Atalho da Siri) ou pelo Claude. O passo a passo de instalação está em [mcp/README.md](mcp/README.md).
+
 ## Stack
 
 React 19, TypeScript, Vite, Tailwind CSS 4, Supabase (Postgres + Auth), Recharts, PapaParse, date-fns. Identidade visual da Duzz: fontes Outfit, Geist e Geist Mono, roxo `#8a00ff` sobre fundo `#0b0b0f`.

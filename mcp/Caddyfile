@@ -1,0 +1,7 @@
+{$DOMAIN} {
+	encode gzip
+	request_body {
+		max_size 25MB
+	}
+	reverse_proxy mcp:8787
+}

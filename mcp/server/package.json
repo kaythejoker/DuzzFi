@@ -1,0 +1,23 @@
+{
+  "name": "duzzfinance-mcp",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Servidor MCP + rota de voz do Duzz Finance",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx src/parse.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@supabase/supabase-js": "^2.119.0",
+    "tsx": "^4.23.15",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "~5.9.3"
+  }
+}

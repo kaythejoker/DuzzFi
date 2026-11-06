@@ -1,0 +1,6 @@
+faster-whisper==1.2.1
+# PyAV 17+ removeu um parâmetro que o faster-whisper 1.2.1 usa
+av==16.1.0
+fastapi==0.162.0
+uvicorn==0.54.0
+python-multipart==0.0.33
