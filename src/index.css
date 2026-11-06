@@ -1,0 +1,151 @@
+@import "tailwindcss";
+
+/*
+ * Identidade visual Duzz (duzz-c.vercel.app)
+ * madrugada #0b0b0f · meia-noite #14141b · papel #f4f4f6 · fumaça #9a9aa5 · roxo #8a00ff
+ * Display: Outfit · Texto: Geist · Rótulos: Geist Mono
+ */
+@theme {
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Outfit", "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  /* paleta Duzz */
+  --color-madrugada: #0b0b0f;
+  --color-meianoite: #14141b;
+  --color-papel: #f4f4f6;
+  --color-fumaca: #9a9aa5;
+  --color-tinta: #0b0b0f;
+  --color-tinta-fraca: #4a4a55;
+  --color-roxo: #8a00ff;
+  --color-roxo-2: #5a22c7;
+  --color-lilas: #c4a1ff;
+
+  /* tokens semânticos usados pelo app */
+  --color-bg: #0b0b0f;
+  --color-surface: #14141b;
+  --color-surface-2: #1b1b24;
+  --color-border: rgb(244 244 246 / 0.1);
+  --color-text: #f4f4f6;
+  --color-muted: #9a9aa5;
+
+  --color-brand: #8a00ff;
+  --color-brand-2: #5a22c7;
+  --color-income: #2fd18b;
+  --color-expense: #ff5c7a;
+  --color-invest: #a855f7;
+  --color-warn: #ffc857;
+  --color-accent: #c4a1ff;
+
+  --duracao-toque: 0.14s;
+  --duracao-hover: 0.18s;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+::selection {
+  background: rgb(138 0 255 / 0.45);
+  color: #fff;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a2a36 transparent;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-roxo);
+}
+
+/* brilho roxo do topo, como no hero da Duzz */
+.glow-top {
+  background:
+    radial-gradient(60rem 28rem at 50% -12rem, rgb(138 0 255 / 0.22), transparent 70%),
+    var(--color-bg);
+}
+
+@utility card {
+  @apply bg-surface border border-border rounded-xl;
+}
+
+@utility eyebrow {
+  @apply font-mono text-[11px] uppercase tracking-[0.22em] text-muted;
+}
+
+@utility input {
+  @apply w-full bg-madrugada border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-tinta-fraca outline-none focus:border-roxo focus:ring-2 focus:ring-roxo/25 transition;
+}
+
+@utility label {
+  @apply block font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted mb-1.5;
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-[0.98];
+  transition-duration: var(--duracao-hover);
+}
+
+@utility btn-primary {
+  @apply btn font-display font-bold text-white;
+  background-image: linear-gradient(135deg, #8a00ff, #5a22c7);
+  &:hover {
+    filter: brightness(1.12);
+  }
+}
+
+@utility btn-secondary {
+  @apply btn bg-transparent border border-border text-text hover:border-papel/30 hover:bg-papel/5;
+}
+
+@utility btn-light {
+  @apply btn rounded-full bg-papel text-tinta font-display font-bold hover:bg-white;
+}
+
+@utility btn-ghost {
+  @apply btn text-muted hover:text-text hover:bg-papel/5;
+}
+
+@utility btn-danger {
+  @apply btn bg-expense/12 text-expense hover:bg-expense/20;
+}
+
+.table {
+  @apply w-full text-sm;
+}
+.table th {
+  @apply text-left font-mono text-[10.5px] font-normal uppercase tracking-[0.16em] text-muted py-2.5 px-3 border-b border-border;
+}
+.table td {
+  @apply py-2.5 px-3 border-b border-border;
+}
+.table tbody tr:hover td {
+  @apply bg-papel/[0.03];
+}
