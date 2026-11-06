@@ -50,6 +50,12 @@ export function CategoriesPage() {
   const totalBudget = list.reduce((s, c) => s + (c.budget ?? 0), 0)
   const uncategorized = spent.get(undefined) ?? 0
 
+  /** Abre a edição com a categoria original (sem os campos calculados da lista, como gasto e média) */
+  function edit(id: number | undefined) {
+    setEditing(categories.find((x) => x.id === id) ?? null)
+    setOpen(true)
+  }
+
   async function remove(c: Category) {
     if (!c.id) return
     // o banco deixa os lançamentos desta categoria como "sem categoria" (FK on delete set null)
@@ -104,7 +110,7 @@ export function CategoriesPage() {
                     </div>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                    <button className="btn-ghost p-1.5" onClick={() => { setEditing(c); setOpen(true) }} aria-label="Editar"><Pencil size={14} /></button>
+                    <button className="btn-ghost p-1.5" onClick={() => edit(c.id)} aria-label="Editar"><Pencil size={14} /></button>
                     <button className="btn-ghost p-1.5 hover:text-expense" onClick={() => setToDelete(c)} aria-label="Excluir"><Trash2 size={14} /></button>
                   </div>
                 </div>
@@ -115,7 +121,7 @@ export function CategoriesPage() {
                       limite {fmtBRL(c.budget)} · {over ? <span className="text-expense">estourou {fmtBRL(c.spent - c.budget)}</span> : <span className="text-income">resta {fmtBRL(c.budget - c.spent)}</span>}
                     </p>
                   ) : c.type === 'expense' ? (
-                    <button className="text-xs text-muted hover:text-brand cursor-pointer" onClick={() => { setEditing(c); setOpen(true) }}>definir limite</button>
+                    <button className="text-xs text-muted hover:text-brand cursor-pointer" onClick={() => edit(c.id)}>definir limite</button>
                   ) : null}
                 </div>
                 <div className="mt-2">
@@ -147,6 +153,7 @@ function CategoryModal({ open, onClose, editing, defaultType }: { open: boolean;
   const [form, setForm] = useState<Category>(editing ?? emptyCat(defaultType))
   const [kw, setKw] = useState((editing?.keywords ?? []).join(', '))
   const [err, setErr] = useState('')
+  const [saving, setSaving] = useState(false)
 
   // reinicializa ao abrir
   const [lastOpen, setLastOpen] = useState(false)
@@ -161,15 +168,27 @@ function CategoryModal({ open, onClose, editing, defaultType }: { open: boolean;
 
   async function save() {
     if (!form.name.trim()) return setErr('Dê um nome à categoria.')
+    // só os campos da tabela: qualquer campo extra faz o banco recusar a gravação
     const payload: Category = {
-      ...form,
       name: form.name.trim(),
+      type: form.type,
+      color: form.color,
+      icon: form.icon,
+      archived: form.archived ?? false,
       keywords: kw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
       budget: form.type === 'expense' && form.budget ? form.budget : undefined,
     }
-    if (editing?.id) await repo.categories.put({ ...payload, id: editing.id })
-    else await repo.categories.add(payload)
-    onClose()
+    setSaving(true)
+    setErr('')
+    try {
+      if (editing?.id) await repo.categories.put({ ...payload, id: editing.id })
+      else await repo.categories.add(payload)
+      onClose()
+    } catch (e) {
+      setErr(`Não consegui salvar: ${(e as Error).message}`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -177,7 +196,7 @@ function CategoryModal({ open, onClose, editing, defaultType }: { open: boolean;
       open={open}
       onClose={onClose}
       title={editing ? 'Editar categoria' : 'Nova categoria'}
-      footer={<><button className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" onClick={save}>Salvar</button></>}
+      footer={<><button className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={saving} onClick={save}>{saving ? 'Salvando…' : 'Salvar'}</button></>}
     >
       <div className="space-y-4">
         <Segmented value={form.type} onChange={(t) => setForm({ ...form, type: t })} options={[{ value: 'expense', label: 'Despesa' }, { value: 'income', label: 'Receita' }]} />
