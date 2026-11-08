@@ -1,6 +1,7 @@
 // Servidor HTTP do Duzz Finance na VPS
 //   /mcp/<token>  -> MCP (Streamable HTTP) para o Claude (app do iPhone, desktop, Claude Code)
 //   /voz          -> recebe um áudio (Atalho do iPhone), transcreve com o Whisper local e lança
+//   /sync         -> POST: puxa as transações dos bancos (Open Finance / Pluggy) agora
 //   /health       -> verificação simples
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
@@ -8,6 +9,8 @@ import { timingSafeEqual } from 'node:crypto'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { handlePhrase } from './actions'
 import { Finance } from './finance'
+import { Pluggy } from './pluggy'
+import { formatReport, syncBanks, type SyncOptions, type SyncReport } from './sync'
 import { buildMcpServer } from './tools'
 import { transcribe, type Audio } from './whisper'
 
@@ -36,6 +39,45 @@ const finance = new Finance({
   email: env('DUZZ_EMAIL'),
   password: env('DUZZ_PASSWORD'),
 })
+
+// ---------- Open Finance (Pluggy) ----------
+
+const PLUGGY_ITEMS = (process.env.PLUGGY_ITEMS ?? '')
+  .split(/[,\s]+/)
+  .map((s) => s.trim())
+  .filter(Boolean)
+const pluggy =
+  process.env.PLUGGY_CLIENT_ID && process.env.PLUGGY_CLIENT_SECRET && PLUGGY_ITEMS.length
+    ? new Pluggy({ clientId: process.env.PLUGGY_CLIENT_ID.trim(), clientSecret: process.env.PLUGGY_CLIENT_SECRET.trim() })
+    : undefined
+const SYNC_OPTS: SyncOptions = {
+  items: PLUGGY_ITEMS,
+  firstSyncDays: Number(process.env.PLUGGY_FIRST_SYNC_DAYS || 90),
+}
+const SYNC_EVERY_MS = Math.max(1, Number(process.env.PLUGGY_SYNC_HOURS || 6)) * 3_600_000
+
+let syncing: Promise<SyncReport> | undefined
+let lastSync: SyncReport | undefined
+
+/** Roda a sincronização (uma por vez; quem chegar durante uma em andamento espera o resultado dela) */
+function runSync(): Promise<SyncReport> {
+  if (!pluggy) return Promise.reject(new Error('Open Finance não configurado: defina PLUGGY_CLIENT_ID, PLUGGY_CLIENT_SECRET e PLUGGY_ITEMS no .env.'))
+  syncing ??= syncBanks(finance, pluggy, SYNC_OPTS)
+    .then((r) => {
+      lastSync = r
+      console.log(`[sync] ${r.ok ? 'ok' : 'com erros'} · +${r.added} novos, ${r.skipped} já existiam${r.errors.length ? ` · ${r.errors.join(' | ')}` : ''}`)
+      return r
+    })
+    .finally(() => (syncing = undefined))
+  return syncing
+}
+
+if (pluggy) {
+  console.log(`Open Finance: ${PLUGGY_ITEMS.length} banco(s) · sincroniza a cada ${SYNC_EVERY_MS / 3_600_000}h`)
+  const tick = () => runSync().catch((e) => console.error('[sync]', e instanceof Error ? e.message : e))
+  setTimeout(tick, 15_000).unref()
+  setInterval(tick, SYNC_EVERY_MS).unref()
+}
 
 // ---------- utilidades HTTP ----------
 
@@ -72,7 +114,7 @@ function send(res: ServerResponse, status: number, body: unknown, type = 'applic
 
 async function handleMcp(req: IncomingMessage, res: ServerResponse) {
   // modo sem sessão: um servidor/transporte novo por requisição
-  const server = buildMcpServer(finance, { defaultAccount: DEFAULT_ACCOUNT })
+  const server = buildMcpServer(finance, { defaultAccount: DEFAULT_ACCOUNT, sync: pluggy ? runSync : undefined })
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
   res.on('close', () => {
     void transport.close()
@@ -160,6 +202,15 @@ const http = createServer(async (req, res) => {
       if (!sameToken(bearer(req) ?? url.searchParams.get('token'))) return send(res, 401, { error: 'não autorizado' })
       if (req.method !== 'POST') return send(res, 405, { error: 'use POST' })
       return await handleVoice(req, res, url)
+    }
+
+    if (path === '/sync') {
+      if (!sameToken(bearer(req) ?? url.searchParams.get('token'))) return send(res, 401, { error: 'não autorizado' })
+      if (req.method === 'GET') return send(res, 200, { configurado: Boolean(pluggy), rodando: Boolean(syncing), ultima: lastSync ?? null })
+      if (req.method !== 'POST') return send(res, 405, { error: 'use POST' })
+      const report = await runSync()
+      if (url.searchParams.get('formato') === 'texto') return send(res, 200, formatReport(report), 'text/plain; charset=utf-8')
+      return send(res, 200, { ok: report.ok, novos: report.added, repetidos: report.skipped, linhas: report.lines, erros: report.errors, mensagem: formatReport(report) })
     }
 
     send(res, 404, { error: 'não encontrado' })

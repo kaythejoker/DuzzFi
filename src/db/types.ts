@@ -12,6 +12,10 @@ export interface Account {
   color: string
   initialBalance: number
   archived?: boolean
+  /** conta no Open Finance ("pluggy:<id>") quando sincronizada pelo servidor da VPS */
+  externalId?: string
+  /** última sincronização via Open Finance */
+  syncedAt?: string
   createdAt: string
 }
 

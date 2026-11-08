@@ -9,6 +9,9 @@ export interface Account {
   institution: string | null
   initialBalance: number
   archived: boolean
+  /** id da conta no Open Finance ("pluggy:<accountId>") quando sincronizada */
+  externalId?: string | null
+  syncedAt?: string | null
 }
 
 export interface Category {
@@ -69,6 +72,8 @@ export interface NewTransaction {
   recurringExpenseId?: number | null
   notes?: string | null
   tags?: string[]
+  /** identificador estável do lançamento importado (extrato, Open Finance) para não duplicar */
+  importHash?: string | null
 }
 
 /** Tudo que o MCP precisa saber para entender um lançamento */

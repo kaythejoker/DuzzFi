@@ -52,6 +52,7 @@ function toRow(tx: Partial<NewTransaction>) {
     recurringExpenseId: 'recurring_expense_id',
     notes: 'notes',
     tags: 'tags',
+    importHash: 'import_hash',
   }
   const row: Row = {}
   for (const [k, v] of Object.entries(tx)) if (k in map && v !== undefined) row[map[k]] = v
@@ -88,7 +89,7 @@ export class Finance {
   async registry(force = false): Promise<Registry> {
     if (!force && this.cache && Date.now() - this.cache.at < 30_000) return this.cache.data
     const [accounts, categories, incomeSources, recurringExpenses] = await Promise.all([
-      this.q<Row[]>((sb) => sb.from('accounts').select('id, name, type, institution, initial_balance, archived').order('id')),
+      this.q<Row[]>((sb) => sb.from('accounts').select('id, name, type, institution, initial_balance, archived, external_id, synced_at').order('id')),
       this.q<Row[]>((sb) => sb.from('categories').select('id, name, type, keywords, budget, archived').order('id')),
       this.q<Row[]>((sb) => sb.from('income_sources').select('id, name, expected_monthly, pay_day, active, default_category_id').order('id')),
       this.q<Row[]>((sb) =>
@@ -104,6 +105,8 @@ export class Finance {
           institution: (r.institution as string | null) ?? null,
           initialBalance: Number(r.initial_balance),
           archived: Boolean(r.archived),
+          externalId: (r.external_id as string | null) ?? null,
+          syncedAt: (r.synced_at as string | null) ?? null,
         }),
       ),
       categories: categories.map(
@@ -142,6 +145,83 @@ export class Finance {
     }
     this.cache = { at: Date.now(), data }
     return data
+  }
+
+  /** Insere vários lançamentos de uma vez (lotes de 500) */
+  async insertMany(txs: NewTransaction[]): Promise<Transaction[]> {
+    const out: Transaction[] = []
+    for (let i = 0; i < txs.length; i += 500) {
+      const chunk = txs.slice(i, i + 500).map(toRow)
+      const rows = await this.q<Row[]>((sb) => sb.from('transactions').insert(chunk).select(TX_COLUMNS))
+      out.push(...rows.map(toTx))
+    }
+    return out
+  }
+
+  /** import_hash dos lançamentos vindos do Open Finance a partir de uma data (para não importar duas vezes) */
+  async importHashes(prefix: string, from: string): Promise<string[]> {
+    const rows = await this.q<Row[]>((sb) =>
+      sb.from('transactions').select('import_hash').like('import_hash', `${prefix}%`).gte('date', from).limit(100000),
+    )
+    return rows.map((r) => String(r.import_hash))
+  }
+
+  /** Data do lançamento mais recente importado do Open Finance nessa conta */
+  async lastImportedDate(accountId: number, prefix: string): Promise<string | null> {
+    const rows = await this.q<Row[]>((sb) =>
+      sb
+        .from('transactions')
+        .select('date')
+        .like('import_hash', `${prefix}%`)
+        .or(`account_id.eq.${accountId},to_account_id.eq.${accountId}`)
+        .order('date', { ascending: false })
+        .limit(1),
+    )
+    return rows[0] ? String(rows[0].date) : null
+  }
+
+  async createAccount(a: {
+    name: string
+    type: Account['type']
+    institution?: string | null
+    initialBalance?: number
+    externalId?: string | null
+  }): Promise<Account> {
+    const row = await this.q<Row>((sb) =>
+      sb
+        .from('accounts')
+        .insert({
+          name: a.name,
+          type: a.type,
+          institution: a.institution ?? null,
+          initial_balance: a.initialBalance ?? 0,
+          external_id: a.externalId ?? null,
+          synced_at: a.externalId ? new Date().toISOString() : null,
+        })
+        .select('id, name, type, institution, initial_balance, archived, external_id, synced_at')
+        .single(),
+    )
+    this.cache = undefined
+    return {
+      id: Number(row.id),
+      name: String(row.name),
+      type: row.type as Account['type'],
+      institution: (row.institution as string | null) ?? null,
+      initialBalance: Number(row.initial_balance),
+      archived: Boolean(row.archived),
+      externalId: (row.external_id as string | null) ?? null,
+      syncedAt: (row.synced_at as string | null) ?? null,
+    }
+  }
+
+  async updateAccount(id: number, patch: { initialBalance?: number; externalId?: string | null; syncedAt?: string | null; institution?: string | null }) {
+    const row: Row = {}
+    if (patch.initialBalance !== undefined) row.initial_balance = patch.initialBalance
+    if (patch.externalId !== undefined) row.external_id = patch.externalId
+    if (patch.syncedAt !== undefined) row.synced_at = patch.syncedAt
+    if (patch.institution !== undefined) row.institution = patch.institution
+    await this.q((sb) => sb.from('accounts').update(row).eq('id', id).select('id'))
+    this.cache = undefined
   }
 
   async insert(tx: NewTransaction): Promise<Transaction> {
