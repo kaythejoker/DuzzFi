@@ -98,6 +98,22 @@ export class Db {
     return data as T
   }
 
+  /**
+   * Lê TODAS as linhas de uma consulta, em páginas de 1000: o PostgREST devolve no máximo 1000 por vez,
+   * e somar só parte dos lançamentos distorce saldos e dedup. A consulta precisa vir ordenada.
+   */
+  // deno-lint-ignore no-explicit-any
+  private async all<T>(build: (sb: SupabaseClient) => any): Promise<T[]> {
+    const out: T[] = []
+    const page = 1000
+    for (let from = 0; ; from += page) {
+      const rows = await this.q<T[]>((sb) => build(sb).range(from, from + page - 1))
+      out.push(...rows)
+      if (rows.length < page) break
+    }
+    return out
+  }
+
   async items(): Promise<OpenFinanceItem[]> {
     const rows = await this.q<Row[]>((sb) => sb.from('open_finance_items').select('id, item_id, name').eq('user_id', this.userId).order('id'))
     return rows.map((r) => ({ id: Number(r.id), itemId: String(r.item_id), name: (r.name as string | null) ?? null }))
@@ -219,8 +235,8 @@ export class Db {
 
   /** import_hash dos lançamentos vindos do Open Finance a partir de uma data */
   async importHashes(prefix: string, from: string): Promise<string[]> {
-    const rows = await this.q<Row[]>((sb) =>
-      sb.from('transactions').select('import_hash').eq('user_id', this.userId).like('import_hash', `${prefix}%`).gte('date', from).limit(100000),
+    const rows = await this.all<Row>((sb) =>
+      sb.from('transactions').select('import_hash').eq('user_id', this.userId).like('import_hash', `${prefix}%`).gte('date', from).order('id'),
     )
     return rows.map((r) => String(r.import_hash))
   }
@@ -245,7 +261,7 @@ export class Db {
     const out = new Set<string>()
     if (!months.length) return out
     const sorted = [...months].sort()
-    const rows = await this.q<Row[]>((sb) =>
+    const rows = await this.all<Row>((sb) =>
       sb
         .from('transactions')
         .select('date, recurring_expense_id')
@@ -253,7 +269,7 @@ export class Db {
         .not('recurring_expense_id', 'is', null)
         .gte('date', `${sorted[0]}-01`)
         .lte('date', lastDay(sorted[sorted.length - 1]))
-        .limit(10000),
+        .order('id'),
     )
     for (const r of rows) out.add(`${r.recurring_expense_id}:${String(r.date).slice(0, 7)}`)
     return out
@@ -261,7 +277,7 @@ export class Db {
 
   /** Saldo atual de cada conta (saldo inicial + entradas - saídas) */
   async balances(accounts: Account[]): Promise<Map<number, number>> {
-    const rows = await this.q<Row[]>((sb) => sb.from('transactions').select('amount, type, account_id, to_account_id').eq('user_id', this.userId).limit(100000))
+    const rows = await this.all<Row>((sb) => sb.from('transactions').select('amount, type, account_id, to_account_id').eq('user_id', this.userId).order('id'))
     const bal = new Map(accounts.map((a) => [a.id, a.initialBalance]))
     for (const r of rows) {
       const v = Number(r.amount)
