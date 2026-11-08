@@ -401,22 +401,29 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
     const bankBalance = isCard ? -Math.abs(l.pluggyAcc.balance) : l.pluggyAcc.balance
     const cd = l.pluggyAcc.creditData
     // fatura atual = a próxima a vencer (o saldo do cartão inclui parcelas futuras, a fatura não)
-    let bill: { total: number; due: string } | undefined
+    let bill: { total: number; due: string; estimate: boolean } | undefined
     if (isCard) {
       const bills = (await pluggy.bills(l.pluggyAcc.id))
         .filter((b) => b.dueDate && Number.isFinite(Number(b.totalAmount)))
         .map((b) => ({ total: Math.abs(Number(b.totalAmount)), due: localDate(b.dueDate) }))
         .sort((a, b) => a.due.localeCompare(b.due))
-      bill = bills.find((b) => b.due >= today)
-      if (!bill) {
-        // o banco só lista faturas fechadas: a fatura aberta é a soma do que ainda está pendente (sem parcelas futuras)
+      const closed = bills.find((b) => b.due >= today)
+      if (closed) bill = { ...closed, estimate: false }
+      else {
+        // o banco só lista faturas fechadas: estima a aberta somando as compras desde o fechamento da última
+        // (fechamento ~7 dias antes do vencimento). Pagamentos e lançamentos contábeis ficam de fora.
         const last = bills[bills.length - 1]
-        const recent = await pluggy.transactions(l.pluggyAcc.id, addDays(today, -60), today).catch(() => [])
-        const open = recent
-          .filter((t) => t.status === 'PENDING' && localDate(t.date) <= today && !BOOKKEEPING_RE.test(clean(t.description ?? '')))
-          .reduce((sum, t) => sum + (typeof t.amountInAccountCurrency === 'number' && t.amountInAccountCurrency !== 0 ? t.amountInAccountCurrency : t.amount), 0)
+        const since = last ? addDays(last.due, -7) : addDays(today, -30)
+        const recent = await pluggy.transactions(l.pluggyAcc.id, since, today).catch(() => [])
+        const open = recent.reduce((sum, t) => {
+          const v = typeof t.amountInAccountCurrency === 'number' && t.amountInAccountCurrency !== 0 ? t.amountInAccountCurrency : t.amount
+          const d = clean(t.description ?? '')
+          if (!v || localDate(t.date) > today || BOOKKEEPING_RE.test(d)) return sum
+          if (v < 0 && PAYMENT_RE.test(d)) return sum
+          return sum + v
+        }, 0)
         const due = last ? nextMonthSameDay(last.due) : cd?.balanceDueDate ? localDate(cd.balanceDueDate) : ''
-        bill = { total: Math.max(0, Math.round(open * 100) / 100), due }
+        bill = { total: Math.max(0, Math.round(open * 100) / 100), due, estimate: true }
       }
     }
     try {
@@ -432,6 +439,7 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
               dueDay: bill?.due ? Number(bill.due.slice(8, 10)) : dayOf(cd?.balanceDueDate),
               currentBill: bill ? bill.total : null,
               billDueDate: bill?.due ? bill.due : null,
+              billEstimated: bill ? bill.estimate : false,
             }
           : {}),
       })
@@ -441,7 +449,7 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
     const n = rows.filter((r) => r.accountId === l.app.id || r.toAccountId === l.app.id).length
     const fetched = fetchedBy.get(l.app.id) ?? 0
     const status = isCard
-      ? `${bill ? `fatura atual ${brl(bill.total)}${bill.due ? ` (vence ${bill.due.slice(8, 10)}/${bill.due.slice(5, 7)})` : ''} · ` : ''}limite usado ${brl(Math.abs(bankBalance))}`
+      ? `${bill ? `fatura ${bill.estimate ? 'aberta ≈ ' : 'atual '}${brl(bill.total)}${bill.due ? ` (vence ${bill.due.slice(8, 10)}/${bill.due.slice(5, 7)})` : ''} · ` : ''}limite usado ${brl(Math.abs(bankBalance))}`
       : `saldo no banco ${brl(bankBalance)}`
     lines.push(`${l.app.name}: ${n ? `+${n} lançamento${n > 1 ? 's' : ''}` : 'nada novo'} (${fetched} no período) · ${status}`)
   }

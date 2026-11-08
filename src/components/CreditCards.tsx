@@ -65,8 +65,12 @@ export function CreditCardsCard({ rows, onAdd, onEdit, onDelete }: { rows: CardR
 
                 <div className="mt-3 flex items-end justify-between gap-2">
                   <div>
-                    <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted">Fatura atual{due ? ` · vence ${due}` : ''}</p>
-                    <p className={`font-display text-xl font-bold tabular-nums ${bill ? 'text-expense' : 'text-text'}`}>{fmtBRL(bill)}</p>
+                    <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted">
+                      {acc.billEstimated ? 'Fatura aberta' : 'Fatura atual'}{due ? ` · vence ${due}` : ''}
+                    </p>
+                    <p className={`font-display text-xl font-bold tabular-nums ${bill ? 'text-expense' : 'text-text'}`} title={acc.billEstimated ? 'Estimada: compras desde o fechamento da última fatura' : undefined}>
+                      {acc.billEstimated ? '≈ ' : ''}{fmtBRL(bill)}
+                    </p>
                   </div>
                   <div className="text-right">
                     <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted">Limite usado</p>

@@ -174,9 +174,11 @@ export class Db {
       dueDay?: number | null
       currentBill?: number | null
       billDueDate?: string | null
+      billEstimated?: boolean
     },
   ) {
     const row: Row = {}
+    if (patch.billEstimated !== undefined) row.bill_estimated = patch.billEstimated
     if (patch.currentBill !== undefined) row.current_bill = patch.currentBill
     if (patch.billDueDate !== undefined) row.bill_due_date = patch.billDueDate
     if (patch.name !== undefined) row.name = patch.name

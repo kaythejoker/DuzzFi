@@ -28,6 +28,8 @@ export interface Account {
   currentBill?: number
   /** cartão de crédito: vencimento da fatura atual (yyyy-MM-dd) */
   billDueDate?: string
+  /** true quando a fatura atual foi estimada pelas compras desde o último fechamento (banco só informa faturas fechadas) */
+  billEstimated?: boolean
   createdAt: string
 }
 
