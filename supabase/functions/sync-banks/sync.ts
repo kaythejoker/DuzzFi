@@ -407,7 +407,17 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
         .filter((b) => b.dueDate && Number.isFinite(Number(b.totalAmount)))
         .map((b) => ({ total: Math.abs(Number(b.totalAmount)), due: localDate(b.dueDate) }))
         .sort((a, b) => a.due.localeCompare(b.due))
-      bill = bills.find((b) => b.due >= today) ?? bills[bills.length - 1]
+      bill = bills.find((b) => b.due >= today)
+      if (!bill) {
+        // o banco só lista faturas fechadas: a fatura aberta é a soma do que ainda está pendente (sem parcelas futuras)
+        const last = bills[bills.length - 1]
+        const recent = await pluggy.transactions(l.pluggyAcc.id, addDays(today, -60), today).catch(() => [])
+        const open = recent
+          .filter((t) => t.status === 'PENDING' && localDate(t.date) <= today && !BOOKKEEPING_RE.test(clean(t.description ?? '')))
+          .reduce((sum, t) => sum + (typeof t.amountInAccountCurrency === 'number' && t.amountInAccountCurrency !== 0 ? t.amountInAccountCurrency : t.amount), 0)
+        const due = last ? nextMonthSameDay(last.due) : cd?.balanceDueDate ? localDate(cd.balanceDueDate) : ''
+        bill = { total: Math.max(0, Math.round(open * 100) / 100), due }
+      }
     }
     try {
       const sync = Number.isFinite(bankBalance) && !(bankBalance === 0 && !l.created && !isCard && fetchedBy.get(l.app.id) === 0)
@@ -419,9 +429,9 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
           ? {
               creditLimit: typeof cd?.creditLimit === 'number' ? cd.creditLimit : undefined,
               closingDay: dayOf(cd?.balanceCloseDate),
-              dueDay: bill ? Number(bill.due.slice(8, 10)) : dayOf(cd?.balanceDueDate),
+              dueDay: bill?.due ? Number(bill.due.slice(8, 10)) : dayOf(cd?.balanceDueDate),
               currentBill: bill ? bill.total : null,
-              billDueDate: bill ? bill.due : null,
+              billDueDate: bill?.due ? bill.due : null,
             }
           : {}),
       })
@@ -431,7 +441,7 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
     const n = rows.filter((r) => r.accountId === l.app.id || r.toAccountId === l.app.id).length
     const fetched = fetchedBy.get(l.app.id) ?? 0
     const status = isCard
-      ? `${bill ? `fatura atual ${brl(bill.total)} (vence ${bill.due.slice(8, 10)}/${bill.due.slice(5, 7)}) · ` : ''}limite usado ${brl(Math.abs(bankBalance))}`
+      ? `${bill ? `fatura atual ${brl(bill.total)}${bill.due ? ` (vence ${bill.due.slice(8, 10)}/${bill.due.slice(5, 7)})` : ''} · ` : ''}limite usado ${brl(Math.abs(bankBalance))}`
       : `saldo no banco ${brl(bankBalance)}`
     lines.push(`${l.app.name}: ${n ? `+${n} lançamento${n > 1 ? 's' : ''}` : 'nada novo'} (${fetched} no período) · ${status}`)
   }
@@ -455,6 +465,15 @@ export function formatReport(r: SyncReport) {
 }
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+/** Mesma data um mês depois (dia 31 cai no último dia do mês seguinte) */
+function nextMonthSameDay(iso: string) {
+  const [y, m, d] = iso.split('-').map(Number)
+  const ny = m === 12 ? y + 1 : y
+  const nm = m === 12 ? 1 : m + 1
+  const lastD = new Date(Date.UTC(ny, nm, 0)).getUTCDate()
+  return `${ny}-${String(nm).padStart(2, '0')}-${String(Math.min(d, lastD)).padStart(2, '0')}`
+}
 
 /** Dia do mês (no fuso do Brasil) de uma data ISO, ou undefined */
 function dayOf(iso?: string | null) {
