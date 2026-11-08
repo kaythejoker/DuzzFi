@@ -271,8 +271,12 @@ export function appInvestmentType(inv: PluggyInvestment): string {
 
 /** Nome legível: "Caixinha Nubank (RDB)", "CDB Porquinho · Inter" */
 export function investmentLabel(inv: PluggyInvestment, institution: string) {
-  const name = clean(inv.name || inv.subtype || inv.type || 'Investimento')
-  if (/^rdb$/i.test(name) && /nubank/i.test(institution)) return 'Caixinha Nubank (RDB)'
+  const raw = clean(inv.name || inv.subtype || inv.type || 'Investimento')
+  // "CDB - NU FINANCEIRA S.A. - SOCIEDADE DE CREDITO..." -> produto + banco
+  const product = /^(cdb|rdb|lci|lca|cri|cra|lc)\b/i.exec(raw)?.[1]?.toUpperCase()
+  if (product && /nubank|nu financeira|nu pagamentos/i.test(`${institution} ${raw}`)) return 'Caixinha Nubank'
+  if (product) return `${product} · ${institution}`
+  const name = raw.length > 40 ? raw.slice(0, 40).trim() : raw
   return normalize(name).includes(normalize(institution)) ? name : `${name} · ${institution}`
 }
 
