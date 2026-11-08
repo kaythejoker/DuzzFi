@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { ArrowLeftRight, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { ArrowLeftRight, Pencil, Plus, Scissors, Search, Trash2 } from 'lucide-react'
 import { PageHeader } from '../components/Shell'
 import { MonthPicker } from '../components/MonthPicker'
 import { TransactionForm } from '../components/TransactionForm'
+import { SplitTransaction } from '../components/SplitTransaction'
 import { Badge, Card, Confirm, EmptyState, Money, Segmented } from '../components/ui'
 import { useAccounts, useById, useCategories, useIncomeSources, useTransactions } from '../hooks/useData'
 import { useMonth } from '../hooks/useMonth'
@@ -23,6 +24,7 @@ export function TransactionsPage() {
   const [editing, setEditing] = useState<Transaction | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [toDelete, setToDelete] = useState<Transaction | null>(null)
+  const [splitting, setSplitting] = useState<Transaction | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [bulkDelete, setBulkDelete] = useState(false)
 
@@ -226,6 +228,11 @@ export function TransactionsPage() {
                           <button className="btn-ghost p-1.5" onClick={() => { setEditing(t); setFormOpen(true) }} aria-label="Editar">
                             <Pencil size={14} />
                           </button>
+                          {t.type !== 'transfer' && (
+                            <button className="btn-ghost p-1.5" onClick={() => setSplitting(t)} aria-label="Dividir em partes" title="Dividir em partes">
+                              <Scissors size={14} />
+                            </button>
+                          )}
                           <button className="btn-ghost p-1.5 hover:text-expense" onClick={() => setToDelete(t)} aria-label="Excluir">
                             <Trash2 size={14} />
                           </button>
@@ -242,6 +249,7 @@ export function TransactionsPage() {
       </Card>
 
       <TransactionForm open={formOpen} onClose={() => setFormOpen(false)} editing={editing} />
+      <SplitTransaction open={!!splitting} onClose={() => setSplitting(null)} tx={splitting} />
       <Confirm
         open={!!toDelete}
         onClose={() => setToDelete(null)}

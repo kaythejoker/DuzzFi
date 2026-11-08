@@ -105,6 +105,28 @@ export function accountBalance(acc: Account, txs: Transaction[], untilISO?: stri
   return bal
 }
 
+/**
+ * Quanto entrou menos quanto saiu das contas (dinheiro de verdade) no mês.
+ * Diferente de receitas - despesas: compra no cartão não sai da conta na hora, pagar a fatura sim;
+ * transferência para fora (ou para um cartão) também sai.
+ */
+export function monthCashFlow(accounts: Account[], txs: Transaction[], ym: string) {
+  const bank = new Set(accounts.filter((a) => !a.archived && a.type !== 'credit_card').map((a) => a.id))
+  let flow = 0
+  for (const t of txs) {
+    if (ymOf(t.date) !== ym) continue
+    const from = t.accountId != null && bank.has(t.accountId)
+    const to = t.toAccountId != null && bank.has(t.toAccountId)
+    if (t.type === 'income' && from) flow += t.amount
+    else if (t.type === 'expense' && from) flow -= t.amount
+    else if (t.type === 'transfer') {
+      if (from && !to) flow -= t.amount
+      if (to && !from) flow += t.amount
+    }
+  }
+  return flow
+}
+
 /** Valor atual de um investimento: último snapshot, ou (aportes - resgates + rendimentos) se não houver snapshot */
 export function investmentValue(
   inv: Investment,

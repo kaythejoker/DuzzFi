@@ -35,7 +35,7 @@ import {
   useTransactions,
 } from '../hooks/useData'
 import { useMonth } from '../hooks/useMonth'
-import { monthlySeries, netWorthSeries, pctChange, sumByCategory, sumByIncomeSource, summarizeMonth } from '../lib/calc'
+import { monthCashFlow, monthlySeries, netWorthSeries, pctChange, sumByCategory, sumByIncomeSource, summarizeMonth } from '../lib/calc'
 import { shiftYM, ymOf } from '../lib/dates'
 import { fmtBRL, fmtDate, fmtPct, todayISO } from '../lib/format'
 
@@ -56,6 +56,7 @@ export function DashboardPage() {
   const [formOpen, setFormOpen] = useState(false)
 
   const summary = useMemo(() => summarizeMonth(txs, ym), [txs, ym])
+  const cashFlow = useMemo(() => monthCashFlow(accounts, txs, ym), [accounts, txs, ym])
   const prev = useMemo(() => summarizeMonth(txs, shiftYM(ym, -1)), [txs, ym])
   const series = useMemo(() => monthlySeries(txs, ym, 12), [txs, ym])
 
@@ -152,11 +153,11 @@ export function DashboardPage() {
         <Kpi label="Receitas do mês" value={fmtBRL(summary.income)} tone="income" icon={<ArrowUpRight />} hint={<Delta value={pctChange(summary.income, prev.income)} />} />
         <Kpi label="Despesas do mês" value={fmtBRL(summary.expense)} tone="expense" icon={<ArrowDownRight />} hint={<Delta value={pctChange(summary.expense, prev.expense)} invert />} />
         <Kpi
-          label="Saldo do mês"
-          value={fmtBRL(summary.balance)}
-          tone={summary.balance >= 0 ? 'income' : 'expense'}
+          label="Em caixa"
+          value={fmtBRL(nwNow?.cash ?? 0)}
+          tone={(nwNow?.cash ?? 0) >= 0 ? 'income' : 'expense'}
           icon={<Wallet />}
-          hint={`Taxa de poupança: ${fmtPct(summary.savingsRate)}`}
+          hint={`No mês: ${cashFlow >= 0 ? '+' : '−'}${fmtBRL(Math.abs(cashFlow))} na conta · receitas − despesas: ${fmtBRL(summary.balance)} (${fmtPct(summary.savingsRate)})`}
         />
         <Kpi label="Aportes no mês" value={fmtBRL(monthInvested)} tone="invest" icon={<TrendingUp />} hint={summary.income ? `${fmtPct(monthInvested / summary.income)} da receita` : undefined} />
         <Kpi
