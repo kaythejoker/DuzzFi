@@ -64,6 +64,14 @@ export interface NewTransaction {
   importHash?: string | null
 }
 
+export interface Investment {
+  id: number
+  name: string
+  type: string
+  externalId: string | null
+  archived: boolean
+}
+
 export interface OpenFinanceItem {
   id: number
   itemId: string
@@ -231,6 +239,59 @@ export class Db {
       n += rows.length
     }
     return n
+  }
+
+  // ---------- investimentos ----------
+
+  async investments(): Promise<Investment[]> {
+    const rows = await this.q<Row[]>((sb) => sb.from('investments').select('id, name, type, external_id, archived').eq('user_id', this.userId).order('id'))
+    return rows.map((r) => ({
+      id: Number(r.id),
+      name: String(r.name),
+      type: String(r.type),
+      externalId: (r.external_id as string | null) ?? null,
+      archived: Boolean(r.archived),
+    }))
+  }
+
+  async createInvestment(i: { name: string; type: string; institution: string | null; ticker?: string | null; externalId: string }): Promise<Investment> {
+    const row = await this.q<Row>((sb) =>
+      sb
+        .from('investments')
+        .insert({ user_id: this.userId, name: i.name, type: i.type, institution: i.institution, ticker: i.ticker ?? null, external_id: i.externalId, synced_at: new Date().toISOString() })
+        .select('id, name, type, external_id, archived')
+        .single(),
+    )
+    return { id: Number(row.id), name: String(row.name), type: String(row.type), externalId: (row.external_id as string | null) ?? null, archived: Boolean(row.archived) }
+  }
+
+  async updateInvestment(id: number, patch: { archived?: boolean; syncedAt?: string | null; institution?: string | null }) {
+    const row: Row = {}
+    if (patch.archived !== undefined) row.archived = patch.archived
+    if (patch.syncedAt !== undefined) row.synced_at = patch.syncedAt
+    if (patch.institution !== undefined) row.institution = patch.institution
+    await this.q((sb) => sb.from('investments').update(row).eq('id', id).eq('user_id', this.userId).select('id'))
+  }
+
+  /** Valor do investimento numa data (um por dia) */
+  async upsertSnapshot(investmentId: number, date: string, value: number) {
+    await this.q((sb) =>
+      sb
+        .from('investment_snapshots')
+        .upsert({ user_id: this.userId, investment_id: investmentId, date, value }, { onConflict: 'investment_id,date' })
+        .select('id'),
+    )
+  }
+
+  async insertMovements(rows: { investmentId: number; date: string; type: 'aporte' | 'resgate'; amount: number; notes: string }[]) {
+    if (!rows.length) return 0
+    const data = await this.q<Row[]>((sb) =>
+      sb
+        .from('investment_movements')
+        .insert(rows.map((m) => ({ user_id: this.userId, investment_id: m.investmentId, date: m.date, type: m.type, amount: m.amount, notes: m.notes })))
+        .select('id'),
+    )
+    return data.length
   }
 
   /** import_hash dos lançamentos vindos do Open Finance a partir de uma data */

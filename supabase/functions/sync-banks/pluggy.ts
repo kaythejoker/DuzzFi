@@ -69,6 +69,24 @@ export interface PluggyBill {
   minimumPaymentAmount?: number | null
 }
 
+export interface PluggyInvestment {
+  id: string
+  itemId: string
+  name: string
+  /** FIXED_INCOME, EQUITY, ETF, MUTUAL_FUND, SECURITY, COE, OTHER */
+  type?: string | null
+  /** CDB, RDB, LCI, TREASURY, MULTIMARKET_FUND, RETIREMENT... */
+  subtype?: string | null
+  /** valor atual */
+  balance?: number | null
+  amount?: number | null
+  value?: number | null
+  status?: string | null
+  code?: string | null
+  issuer?: string | null
+  currencyCode?: string | null
+}
+
 export class Pluggy {
   private key?: { value: string; expiresAt: number }
   private legacyTransactions = false
@@ -110,6 +128,23 @@ export class Pluggy {
   async accounts(itemId: string) {
     const r = await this.get<{ results: PluggyAccount[] }>(`/accounts?itemId=${encodeURIComponent(itemId)}`)
     return r.results ?? []
+  }
+
+  /** Investimentos do item (caixinhas, CDB, fundos...). Vazio se o conector não oferecer. */
+  async investments(itemId: string): Promise<PluggyInvestment[]> {
+    const out: PluggyInvestment[] = []
+    try {
+      for (let page = 1; page < 50; page++) {
+        const r: { results: PluggyInvestment[]; totalPages?: number } = await this.get(
+          `/investments?itemId=${encodeURIComponent(itemId)}&pageSize=500&page=${page}`,
+        )
+        out.push(...(r.results ?? []))
+        if (!r.totalPages || page >= r.totalPages) break
+      }
+    } catch {
+      return out
+    }
+    return out
   }
 
   /** Faturas do cartão (vazio se o plano/conector não oferecer) */

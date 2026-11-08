@@ -5,8 +5,8 @@
 // "pluggy:<id>", categorizados pelas palavras-chave do app. Pares saída/entrada entre contas suas
 // viram transferência; pagamento de fatura vira transferência da conta para o cartão.
 
-import type { Account, Category, Db, NewTransaction, OpenFinanceItem, Registry } from './db.ts'
-import type { Pluggy, PluggyAccount, PluggyItem, PluggyTransaction } from './pluggy.ts'
+import type { Account, Category, Db, Investment, NewTransaction, OpenFinanceItem, Registry } from './db.ts'
+import type { Pluggy, PluggyAccount, PluggyInvestment, PluggyItem, PluggyTransaction } from './pluggy.ts'
 import { addDays, brl, keywordMatches, normalize, todayISO, wholeWord } from './text.ts'
 
 export const HASH_PREFIX = 'pluggy:'
@@ -253,6 +253,50 @@ export function toTransaction(c: Mapped, reg: Registry, paidBills: Set<string>):
   }
 }
 
+// ---------- investimentos: produto do banco <-> investimento do app ----------
+
+/** Tipo do app a partir do tipo/subtipo do Pluggy */
+export function appInvestmentType(inv: PluggyInvestment): string {
+  const t = `${inv.type ?? ''} ${inv.subtype ?? ''} ${inv.name ?? ''}`.toUpperCase()
+  if (/TREASURY|TESOURO/.test(t)) return 'tesouro'
+  if (/SAVINGS|POUPAN/.test(t)) return 'poupanca'
+  if (/RETIREMENT|PREVID|PGBL|VGBL/.test(t)) return 'previdencia'
+  if (/CRYPTO|CRIPTO|BITCOIN|BTC|ETH/.test(t)) return 'cripto'
+  if (/REAL_ESTATE|FII|IMOBILI/.test(t)) return 'fiis'
+  if (/FIXED_INCOME|CDB|RDB|LCI|LCA|CRI|CRA|DEBENTURE/.test(t)) return 'renda_fixa'
+  if (/MUTUAL_FUND|FUNDO|FUND/.test(t)) return 'fundos'
+  if (/EQUITY|STOCK|ACAO|AÇÃO|BDR|ETF/.test(t)) return 'acoes'
+  return 'outro'
+}
+
+/** Nome legível: "Caixinha Nubank (RDB)", "CDB Porquinho · Inter" */
+export function investmentLabel(inv: PluggyInvestment, institution: string) {
+  const name = clean(inv.name || inv.subtype || inv.type || 'Investimento')
+  if (/^rdb$/i.test(name) && /nubank/i.test(institution)) return 'Caixinha Nubank (RDB)'
+  return normalize(name).includes(normalize(institution)) ? name : `${name} · ${institution}`
+}
+
+/** Valor atual informado pelo banco */
+function investmentBalance(inv: PluggyInvestment) {
+  for (const v of [inv.balance, inv.amount, inv.value]) if (typeof v === 'number' && Number.isFinite(v)) return Math.round(v * 100) / 100
+  return null
+}
+
+const INVEST_TOKENS = ['rdb', 'cdb', 'porquinho', 'caixinha', 'lci', 'lca', 'poupanca', 'tesouro', 'fundo', 'cri', 'cra', 'debenture']
+
+/** Qual investimento do banco uma aplicação/resgate da conta se refere (pelo nome do produto na descrição) */
+export function matchInvestment(description: string, candidates: { id: number; name: string; pluggy: PluggyInvestment }[]) {
+  if (candidates.length === 0) return undefined
+  if (candidates.length === 1) return candidates[0]
+  const d = normalize(description)
+  const tokens = INVEST_TOKENS.filter((t) => d.includes(t))
+  const hits = candidates.filter((c) => {
+    const text = normalize(`${c.name} ${c.pluggy.name ?? ''} ${c.pluggy.subtype ?? ''}`)
+    return tokens.some((t) => text.includes(t))
+  })
+  return hits.length === 1 ? hits[0] : undefined
+}
+
 // ---------- contas: ligação Pluggy <-> app ----------
 
 export function appAccountType(acc: PluggyAccount): Account['type'] {
@@ -284,6 +328,7 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
   const overlapDays = opts.overlapDays ?? 7
   const lines: string[] = []
   const errors: string[] = []
+  const now0 = new Date().toISOString()
   let reg = await db.registry()
 
   type Linked = { pluggyAcc: PluggyAccount; app: Account; created: boolean; item: PluggyItem; row: OpenFinanceItem; from: string }
@@ -360,6 +405,56 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
     }
   }
 
+  // ---------- investimentos de cada banco: um investimento no app por produto, saldo do dia como snapshot ----------
+  const invByItem = new Map<number, { id: number; name: string; pluggy: PluggyInvestment }[]>()
+  let appInvestments: Investment[] = []
+  try {
+    appInvestments = await db.investments()
+  } catch (e) {
+    errors.push(`Lendo investimentos: ${msg(e)}`)
+  }
+  for (const row of items) {
+    const institution = linked.find((l) => l.row.id === row.id)?.app.institution ?? row.name ?? 'Banco'
+    let list: PluggyInvestment[] = []
+    try {
+      list = await pluggy.investments(row.itemId)
+    } catch {
+      list = []
+    }
+    const mine: { id: number; name: string; pluggy: PluggyInvestment }[] = []
+    let created = 0
+    for (const pi of list) {
+      const balance = investmentBalance(pi)
+      const active = (pi.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE' && balance !== null && balance > 0
+      const externalId = HASH_PREFIX + pi.id
+      let app = appInvestments.find((i) => i.externalId === externalId)
+      try {
+        if (!app && !active) continue // produto zerado/encerrado que nunca entrou: ignora
+        if (!app) {
+          app = await db.createInvestment({ name: investmentLabel(pi, institution), type: appInvestmentType(pi), institution, ticker: pi.code ?? null, externalId })
+          appInvestments.push(app)
+          created++
+        }
+        if (active) {
+          await db.upsertSnapshot(app.id, today, balance!)
+          await db.updateInvestment(app.id, { syncedAt: now0, ...(app.archived ? { archived: false } : {}) })
+          mine.push({ id: app.id, name: app.name, pluggy: pi })
+        } else if (!app.archived) {
+          // zerou no banco: registra o zero e arquiva
+          await db.upsertSnapshot(app.id, today, 0)
+          await db.updateInvestment(app.id, { archived: true, syncedAt: now0 })
+        }
+      } catch (e) {
+        fail(row, `${institution} (${pi.name}): ${msg(e)}`)
+      }
+    }
+    invByItem.set(row.id, mine)
+    if (mine.length || created) {
+      const total = mine.reduce((s, m) => s + (investmentBalance(m.pluggy) ?? 0), 0)
+      lines.push(`${institution}: ${mine.length} investimento${mine.length === 1 ? '' : 's'} (${brl(total)})${created ? ` · ${created} novo${created > 1 ? 's' : ''}` : ''}`)
+    }
+  }
+
   // contas podem ter sido renomeadas/ligadas acima: recarrega antes de casar transferências
   reg = await db.registry()
 
@@ -396,6 +491,31 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
       added = await db.insertMany(rows)
     } catch (e) {
       errors.push(`Gravando lançamentos: ${msg(e)}`)
+    }
+  }
+
+  // aplicação/resgate que acabou de entrar vira aporte/resgate no investimento correspondente
+  if (added) {
+    const itemOfAccount = new Map(linked.map((l) => [l.app.id, l.row.id]))
+    const movements: { investmentId: number; date: string; type: 'aporte' | 'resgate'; amount: number; notes: string }[] = []
+    rows.forEach((r, i) => {
+      const c = mapped[i]
+      if (!c || c.bank !== 'BANK' || r.type !== 'transfer' || !INVEST_RE.test(c.description)) return
+      const isAporte = r.accountId != null && r.toAccountId == null
+      const isResgate = r.accountId == null && r.toAccountId != null
+      if (!isAporte && !isResgate) return
+      const itemId = itemOfAccount.get(c.accountId)
+      const inv = itemId != null ? matchInvestment(c.description, invByItem.get(itemId) ?? []) : undefined
+      if (!inv) return
+      movements.push({ investmentId: inv.id, date: c.date, type: isAporte ? 'aporte' : 'resgate', amount: c.amount, notes: `${c.description} (Open Finance)` })
+    })
+    if (movements.length) {
+      try {
+        const n = await db.insertMovements(movements)
+        lines.push(`Investimentos: ${n} aporte${n === 1 ? '' : 's'}/resgate${n === 1 ? '' : 's'} registrado${n === 1 ? '' : 's'}.`)
+      } catch (e) {
+        errors.push(`Gravando movimentos de investimento: ${msg(e)}`)
+      }
     }
   }
 
