@@ -84,7 +84,7 @@ export function DashboardPage() {
         value,
       }))
       .sort((a, b) => b.value - a.value)
-  }, [txs, ym, srcById])
+  }, [txs, accounts, ym, srcById])
 
   const nw = useMemo(
     () => netWorthSeries({ accounts, txs, investments, movements, snapshots, assets, valuations }, ym, 2),

@@ -15,6 +15,7 @@ import {
   YAxis,
 } from 'recharts'
 import { PageHeader } from '../components/Shell'
+import { WealthProjection, type CurrentScenario } from '../components/WealthProjection'
 import { Card, EmptyState, Kpi, Segmented } from '../components/ui'
 import { axisStyle, gridStroke, moneyTick, monthTick, tooltipLabelMonth, tooltipMoney, tooltipStyle } from '../components/charts'
 import {
@@ -120,9 +121,29 @@ export function GrowthPage() {
       r.nwEnd = s[0]?.netWorth ?? 0
     }
     return list
-  }, [txs, movements, accounts, investments, snapshots, assets, valuations, ym])
+  }, [txs, movements, accounts, cards, investments, snapshots, assets, valuations, ym])
 
   const hasData = txs.length > 0 || movements.length > 0 || valuations.length > 0
+
+  // ponto de partida do simulador: patrimônio líquido de hoje (caixa + investimentos) e médias dos últimos 6 meses
+  const scenario = useMemo<CurrentScenario>(() => {
+    const now = nw[nw.length - 1]
+    const recent = lastMonths(ym, 6)
+    const monthsWithData = recent.filter((m) => flow.find((f) => f.ym === m && (f.income > 0 || f.expense > 0)))
+    const n = Math.max(1, monthsWithData.length)
+    const contributed = movements
+      .filter((m) => recent.includes(ymOf(m.date)))
+      .reduce((s, m) => s + (m.type === 'aporte' ? m.amount : m.type === 'resgate' ? -m.amount : 0), 0)
+    const savings = flow.filter((f) => recent.includes(f.ym)).reduce((s, f) => s + f.balance, 0)
+    const thirteenth = sources.filter((s) => s.active && s.type === 'clt').reduce((s, x) => s + x.expectedMonthly, 0)
+    return {
+      liquidWealth: (now?.cash ?? 0) + (now?.investments ?? 0),
+      avgContribution: Math.max(0, contributed / n),
+      avgSavings: savings / n,
+      thirteenth,
+      monthsConsidered: monthsWithData.length,
+    }
+  }, [nw, flow, movements, sources, ym])
 
   return (
     <>
@@ -247,6 +268,8 @@ export function GrowthPage() {
           </ResponsiveContainer>
         </div>
       </Card>
+
+      <WealthProjection scenario={scenario} />
 
       {yearly.length > 0 && (
         <Card title="Resumo por ano" bodyClassName="p-0!">
