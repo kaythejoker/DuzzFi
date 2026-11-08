@@ -3,7 +3,7 @@
 export function normalize(s: string) {
   return s
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim()
 }
@@ -44,4 +44,4 @@ export function lastDay(ym: string) {
 }
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
-export const brl = (n: number) => BRL.format(n).replace(/ /g, ' ')
+export const brl = (n: number) => BRL.format(n).replace(/\u00a0/g, ' ')

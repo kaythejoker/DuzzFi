@@ -294,6 +294,21 @@ export class Db {
     return data.length
   }
 
+  /** Aportes e resgates de um investimento, em ordem de data */
+  async movementsOf(investmentId: number): Promise<{ date: string; type: string; amount: number }[]> {
+    const rows = await this.all<Row>((sb) =>
+      sb
+        .from('investment_movements')
+        .select('date, type, amount')
+        .eq('user_id', this.userId)
+        .eq('investment_id', investmentId)
+        .in('type', ['aporte', 'resgate'])
+        .order('date')
+        .order('id'),
+    )
+    return rows.map((r) => ({ date: String(r.date), type: String(r.type), amount: Number(r.amount) }))
+  }
+
   /** import_hash dos lançamentos vindos do Open Finance a partir de uma data */
   async importHashes(prefix: string, from: string): Promise<string[]> {
     const rows = await this.all<Row>((sb) =>

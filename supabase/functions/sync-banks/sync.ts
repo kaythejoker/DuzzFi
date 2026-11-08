@@ -122,6 +122,8 @@ export function pairTransfers(cands: Candidate[], accounts: Account[]): Mapped[]
   for (const exp of out) {
     // compra no cartão nunca é transferência para uma conta sua; na conta, só saídas que parecem movimentação própria
     if (exp.type !== 'expense' || exp.cardPayment || exp.bank === 'CREDIT' || !TRANSFER_HINT_RE.test(`${exp.description} ${exp.memo}`)) continue
+    // aplicação vai para o investimento do próprio banco, nunca para outra conta
+    if (INVEST_RE.test(exp.description)) continue
     const match = incomes.find(
       (inc) =>
         !used.has(inc.pluggyId) &&
@@ -292,6 +294,25 @@ export function investmentLabel(inv: PluggyInvestment, institution: string) {
   return normalize(name).includes(normalize(institution)) ? name : `${name} · ${institution}`
 }
 
+const RECONCILE_TYPES = new Set(['renda_fixa', 'poupanca'])
+
+/**
+ * Resgate que falta para aportes - resgates baterem com o valor do banco (só quando sobra dinheiro no app).
+ * Data: dia seguinte ao último movimento antes do aporte mais recente (o dinheiro já tinha saído antes dele).
+ */
+export function missingWithdrawal(moves: { date: string; type: string; amount: number }[], bankValue: number, today: string) {
+  const net = moves.reduce((s, m) => s + (m.type === 'aporte' ? m.amount : -m.amount), 0)
+  const amount = Math.round((net - bankValue) * 100) / 100
+  if (amount < 1) return null
+  let lastAporte = -1
+  moves.forEach((m, i) => {
+    if (m.type === 'aporte') lastAporte = i
+  })
+  const before = lastAporte > 0 ? moves.slice(0, lastAporte).filter((m) => m.date < moves[lastAporte].date).pop() : undefined
+  const date = before ? addDays(before.date, 1) : today
+  return { amount, date: date > today ? today : date }
+}
+
 /** Valor atual informado pelo banco */
 function investmentBalance(inv: PluggyInvestment) {
   for (const v of [inv.balance, inv.amount, inv.value]) if (typeof v === 'number' && Number.isFinite(v)) return Math.round(v * 100) / 100
@@ -423,6 +444,8 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
 
   // ---------- investimentos de cada banco: um investimento no app por produto, saldo do dia como snapshot ----------
   const invByItem = new Map<number, { id: number; name: string; pluggy: PluggyInvestment }[]>()
+  // valor que o banco informa hoje para cada investimento (zerado = 0), para conferir com aportes - resgates
+  const bankValues: { id: number; name: string; type: string; value: number }[] = []
   let appInvestments: Investment[] = []
   try {
     appInvestments = await db.investments()
@@ -455,10 +478,12 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
           await db.upsertSnapshot(app.id, today, balance!)
           await db.updateInvestment(app.id, { syncedAt: now0, ...(app.archived ? { archived: false } : {}) })
           mine.push({ id: app.id, name: app.name, pluggy: pi })
+          bankValues.push({ id: app.id, name: app.name, type: app.type, value: balance! })
         } else if (!app.archived) {
           // zerou no banco: registra o zero e arquiva
           await db.upsertSnapshot(app.id, today, 0)
           await db.updateInvestment(app.id, { archived: true, syncedAt: now0 })
+          bankValues.push({ id: app.id, name: app.name, type: app.type, value: 0 })
         }
       } catch (e) {
         fail(row, `${institution} (${pi.name}): ${msg(e)}`)
@@ -534,6 +559,20 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
       } catch (e) {
         errors.push(`Gravando movimentos de investimento: ${msg(e)}`)
       }
+    }
+  }
+
+  // Renda fixa não perde valor: se o banco mostra menos do que aportes - resgates, houve uma saída que o
+  // extrato não trouxe (ex.: pagamento feito direto com o dinheiro guardado). Registra a diferença como resgate.
+  for (const b of bankValues) {
+    if (!RECONCILE_TYPES.has(b.type)) continue
+    try {
+      const adj = missingWithdrawal(await db.movementsOf(b.id), b.value, today)
+      if (!adj) continue
+      await db.insertMovements([{ investmentId: b.id, date: adj.date, type: 'resgate', amount: adj.amount, notes: 'Resgate não informado pelo banco (ajuste do Open Finance)' }])
+      lines.push(`${b.name}: ajuste de ${brl(adj.amount)} para bater com o saldo do banco.`)
+    } catch (e) {
+      errors.push(`Conferindo ${b.name}: ${msg(e)}`)
     }
   }
 
