@@ -49,7 +49,9 @@ export interface Candidate {
 
 // ---------- mapeamento de uma transação do Pluggy ----------
 
+const GENERIC_RE = /meu\s*pluggy/i
 const PAYMENT_RE = /\b(pagamento|pagto|pgto|payment)\b.*\b(fatura|cart[aã]o|recebid[oa])\b|\bfatura\b.*\b(pag|cart)/i
+const TRANSFER_HINT_RE = /\b(pix|ted|doc|tef|transf\w*|resgate|aplica\w*|fatura|pagamento|payment|cart[aã]o)\b/i
 const CARD_BILL_RE = /\b(fatura|cart[aã]o de cr[eé]dito|credit card)\b/i
 
 export function toCandidate(t: PluggyTransaction, acc: PluggyAccount, appAccountId: number, institution: string): Candidate | null {
@@ -113,7 +115,8 @@ export function pairTransfers(cands: Candidate[], accounts: Account[]): Mapped[]
   const incomes = out.filter((c) => c.type === 'income' && !c.cardPayment)
 
   for (const exp of out) {
-    if (exp.type !== 'expense' || exp.cardPayment) continue
+    // compra no cartão nunca é transferência para uma conta sua; na conta, só saídas que parecem movimentação própria
+    if (exp.type !== 'expense' || exp.cardPayment || exp.bank === 'CREDIT' || !TRANSFER_HINT_RE.test(`${exp.description} ${exp.memo}`)) continue
     const match = incomes.find(
       (inc) =>
         !used.has(inc.pluggyId) &&
@@ -274,8 +277,11 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
       fail(row, `Item ${row.name ?? row.itemId}: ${msg(e)}`)
       continue
     }
-    const institution = item.connector?.name ?? 'Banco'
-    await db.updateItem(row.id, { name: institution, status: item.status }).catch(() => undefined)
+    // itens do Meu Pluggy vêm com o conector genérico "MeuPluggy": o nome do banco é o que o usuário deu ao item
+    const connector = item.connector?.name ?? 'Banco'
+    const generic = GENERIC_RE.test(connector)
+    let institution = generic && row.name && !GENERIC_RE.test(row.name) ? row.name : connector
+    await db.updateItem(row.id, { status: item.status, ...(generic && row.name ? {} : { name: institution }) }).catch(() => undefined)
     if (item.status === 'LOGIN_ERROR' || item.status === 'WAITING_USER_INPUT') {
       lines.push(`${institution}: conexão precisa de atenção (${item.status}). Reconecte no Meu Pluggy.`)
     } else if (item.status === 'OUTDATED') {
@@ -288,11 +294,25 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
       fail(row, `${institution}: ${msg(e)}`)
       continue
     }
+    if (GENERIC_RE.test(institution)) {
+      const hint = accounts.find((a) => a.marketingName)?.marketingName
+      if (hint) {
+        institution = hint
+        await db.updateItem(row.id, { name: institution }).catch(() => undefined)
+      }
+    }
     for (const pluggyAcc of accounts) {
       const externalId = HASH_PREFIX + pluggyAcc.id
       let app = reg.accounts.find((a) => a.externalId === externalId)
       let created = false
       try {
+        // conta criada numa rodada anterior ainda com o nome genérico do conector
+        if (app && GENERIC_RE.test(app.institution ?? '') && !GENERIC_RE.test(institution)) {
+          const name = app.name.replace(GENERIC_RE, institution)
+          await db.updateAccount(app.id, { institution, name })
+          app = { ...app, institution, name }
+          lines.push(`${institution}: renomeei a conta "${name}".`)
+        }
         if (!app) {
           const existing = guessExisting(pluggyAcc, institution, reg.accounts)
           if (existing) {
@@ -315,6 +335,9 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
     }
   }
 
+  // contas podem ter sido renomeadas/ligadas acima: recarrega antes de casar transferências
+  reg = await db.registry()
+
   // busca as transações de todas as contas antes de casar transferências entre elas
   const cands: Candidate[] = []
   const fetchedBy = new Map<number, number>()
@@ -323,7 +346,7 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
       const txs = await pluggy.transactions(l.pluggyAcc.id, l.from, today)
       fetchedBy.set(l.app.id, txs.length)
       for (const t of txs) {
-        const c = toCandidate(t, l.pluggyAcc, l.app.id, l.item.connector?.name ?? 'Banco')
+        const c = toCandidate(t, l.pluggyAcc, l.app.id, l.app.institution ?? l.item.connector?.name ?? 'Banco')
         if (c) cands.push(c)
       }
     } catch (e) {
@@ -351,23 +374,36 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
     }
   }
 
-  // saldo inicial da conta recém-criada = saldo do banco - efeito dos lançamentos importados
+  // o saldo do app passa a bater com o do banco: o saldo inicial absorve o que ficou fora da janela importada
+  // (fatura anterior, lançamentos antigos). Cartão: saldo devido fica negativo. Também guarda limite e datas da fatura.
   const balances = await db.balances(reg.accounts)
   const now = new Date().toISOString()
   for (const l of linked) {
     const bal = balances.get(l.app.id) ?? 0
-    const bankBalance = l.pluggyAcc.type === 'CREDIT' ? -Math.abs(l.pluggyAcc.balance) : l.pluggyAcc.balance
+    const isCard = l.pluggyAcc.type === 'CREDIT'
+    const bankBalance = isCard ? -Math.abs(l.pluggyAcc.balance) : l.pluggyAcc.balance
+    const cd = l.pluggyAcc.creditData
     try {
-      if (l.created && Number.isFinite(bankBalance)) {
-        await db.updateAccount(l.app.id, { initialBalance: Math.round((bankBalance - bal) * 100) / 100, syncedAt: now })
-      } else await db.updateAccount(l.app.id, { syncedAt: now })
+      const sync = Number.isFinite(bankBalance) && !(bankBalance === 0 && !l.created && !isCard && fetchedBy.get(l.app.id) === 0)
+      await db.updateAccount(l.app.id, {
+        syncedAt: now,
+        bankBalance: Number.isFinite(bankBalance) ? bankBalance : null,
+        ...(sync ? { initialBalance: Math.round((l.app.initialBalance + bankBalance - bal) * 100) / 100 } : {}),
+        ...(isCard
+          ? {
+              creditLimit: typeof cd?.creditLimit === 'number' ? cd.creditLimit : undefined,
+              closingDay: dayOf(cd?.balanceCloseDate),
+              dueDay: dayOf(cd?.balanceDueDate),
+            }
+          : {}),
+      })
     } catch (e) {
       fail(l.row, `${l.app.name}: ${msg(e)}`)
     }
     const n = rows.filter((r) => r.accountId === l.app.id || r.toAccountId === l.app.id).length
     const fetched = fetchedBy.get(l.app.id) ?? 0
-    const drift = !l.created && Math.abs(bankBalance - bal) >= 0.01 ? ` · no app ${brl(bal)}` : ''
-    lines.push(`${l.app.name}: ${n ? `+${n} lançamento${n > 1 ? 's' : ''}` : 'nada novo'} (${fetched} no período) · saldo no banco ${brl(bankBalance)}${drift}`)
+    const label = isCard ? 'fatura' : 'saldo'
+    lines.push(`${l.app.name}: ${n ? `+${n} lançamento${n > 1 ? 's' : ''}` : 'nada novo'} (${fetched} no período) · ${label} no banco ${brl(Math.abs(bankBalance))}`)
   }
 
   // estado por item (aparece no app)
@@ -389,3 +425,10 @@ export function formatReport(r: SyncReport) {
 }
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+/** Dia do mês (no fuso do Brasil) de uma data ISO, ou undefined */
+function dayOf(iso?: string | null) {
+  if (!iso) return undefined
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? undefined : Number(todayISO(d).slice(8, 10))
+}

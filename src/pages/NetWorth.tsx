@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Building2, CreditCard, Landmark, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { PageHeader } from '../components/Shell'
+import { CreditCardsCard } from '../components/CreditCards'
 import { Badge, Card, ColorPicker, Confirm, Dot, EmptyState, Field, Kpi, Modal, MoneyInput, Segmented } from '../components/ui'
 import { tooltipMoney, tooltipStyle } from '../components/charts'
 import {
@@ -54,7 +55,15 @@ export function NetWorthPage() {
   const now = nw[1]
   const prev = nw[0]
 
-  const accRows = useMemo(() => accounts.filter((a) => !a.archived).map((a) => ({ acc: a, balance: accountBalance(a, txs) })), [accounts, txs])
+  // cartão de crédito não é conta: fica na seção própria, fora do caixa
+  const accRows = useMemo(
+    () => accounts.filter((a) => !a.archived && a.type !== 'credit_card').map((a) => ({ acc: a, balance: accountBalance(a, txs) })),
+    [accounts, txs],
+  )
+  const cardRows = useMemo(
+    () => accounts.filter((a) => !a.archived && a.type === 'credit_card').map((a) => ({ acc: a, balance: accountBalance(a, txs) })),
+    [accounts, txs],
+  )
   const assetRows = useMemo(
     () =>
       assets
@@ -164,6 +173,13 @@ export function NetWorthPage() {
         </Card>
       </div>
 
+      <CreditCardsCard
+        rows={cardRows}
+        onAdd={() => { setAccEditing({ ...emptyAccount(), type: 'credit_card' }); setAccOpen(true) }}
+        onEdit={(a) => { setAccEditing(a); setAccOpen(true) }}
+        onDelete={setAccDelete}
+      />
+
       <div className="grid lg:grid-cols-2 gap-4">
         <AssetList
           title="Empresas, sociedades & bens"
@@ -271,7 +287,7 @@ function AccountModal({ open, onClose, editing }: { open: boolean; onClose: () =
     onClose()
   }
   return (
-    <Modal open={open} onClose={onClose} title={editing ? 'Editar conta' : 'Nova conta'} footer={<><button className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" onClick={save}>Salvar</button></>}>
+    <Modal open={open} onClose={onClose} title={editing?.id ? (form.type === 'credit_card' ? 'Editar cartão' : 'Editar conta') : form.type === 'credit_card' ? 'Novo cartão' : 'Nova conta'} footer={<><button className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" onClick={save}>Salvar</button></>}>
       <div className="space-y-4">
         <Field label="Nome"><input className="input" autoFocus value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Nubank, Itaú, Carteira…" /></Field>
         <div className="grid grid-cols-2 gap-3">
@@ -282,9 +298,22 @@ function AccountModal({ open, onClose, editing }: { open: boolean; onClose: () =
           </Field>
           <Field label="Instituição"><input className="input" value={form.institution ?? ''} onChange={(e) => set('institution', e.target.value || undefined)} /></Field>
         </div>
-        <Field label="Saldo inicial" hint="Saldo da conta antes do primeiro lançamento registrado aqui. Para cartão de crédito, use negativo se já houver fatura em aberto.">
-          <MoneyInput value={form.initialBalance} onChange={(v) => set('initialBalance', v)} />
-        </Field>
+        {form.type === 'credit_card' ? (
+          <>
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="Limite"><MoneyInput value={form.creditLimit ?? 0} onChange={(v) => set('creditLimit', v || undefined)} /></Field>
+              <Field label="Fecha dia"><input className="input" type="number" min={1} max={31} value={form.closingDay ?? ''} onChange={(e) => set('closingDay', e.target.value ? Number(e.target.value) : undefined)} /></Field>
+              <Field label="Vence dia"><input className="input" type="number" min={1} max={31} value={form.dueDay ?? ''} onChange={(e) => set('dueDay', e.target.value ? Number(e.target.value) : undefined)} /></Field>
+            </div>
+            <Field label="Fatura em aberto hoje" hint="Valor que você já deve neste cartão antes dos lançamentos registrados aqui. Fica como saldo inicial negativo.">
+              <MoneyInput value={Math.max(0, -form.initialBalance)} onChange={(v) => set('initialBalance', -Math.abs(v))} />
+            </Field>
+          </>
+        ) : (
+          <Field label="Saldo inicial" hint="Saldo da conta antes do primeiro lançamento registrado aqui.">
+            <MoneyInput value={form.initialBalance} onChange={(v) => set('initialBalance', v)} />
+          </Field>
+        )}
         <Field label="Cor"><ColorPicker value={form.color} onChange={(c) => set('color', c)} /></Field>
         {err && <p className="text-sm text-expense">{err}</p>}
       </div>

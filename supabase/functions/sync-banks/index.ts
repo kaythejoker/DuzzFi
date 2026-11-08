@@ -51,8 +51,10 @@ Deno.serve(async (req) => {
     } else return json(401, { ok: false, mensagem: 'não autorizado' })
 
     const pluggy = new Pluggy({ clientId: env('PLUGGY_CLIENT_ID'), clientSecret: env('PLUGGY_CLIENT_SECRET') })
-    const body = (await req.json().catch(() => ({}))) as { primeiraSincronizacaoDias?: number }
+    const body = (await req.json().catch(() => ({}))) as { primeiraSincronizacaoDias?: number; reconferirDias?: number }
     const firstSyncDays = Math.min(730, Math.max(1, Number(body.primeiraSincronizacaoDias) || 90))
+    // quantos dias antes do último lançamento importado reconferir (padrão 7; maior para reimportar algo apagado)
+    const overlapDays = Math.min(730, Math.max(1, Number(body.reconferirDias) || 7))
 
     const reports: SyncReport[] = []
     for (const userId of userIds) {
@@ -62,7 +64,7 @@ Deno.serve(async (req) => {
         reports.push({ ok: true, added: 0, skipped: 0, lines: ['Nenhum banco conectado. Adicione o id de um item do Meu Pluggy.'], errors: [], startedAt: '', finishedAt: '' })
         continue
       }
-      const r = await syncBanks(db, pluggy, items, { firstSyncDays })
+      const r = await syncBanks(db, pluggy, items, { firstSyncDays, overlapDays })
       console.log(`[sync] ${userId} · ${r.ok ? 'ok' : 'com erros'} · +${r.added} novos, ${r.skipped} já existiam${r.errors.length ? ` · ${r.errors.join(' | ')}` : ''}`)
       reports.push(r)
     }

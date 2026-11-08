@@ -32,7 +32,7 @@ Na primeira entrada o app cria as categorias padrão e uma conta "Conta principa
 | Despesas fixas | Aluguel, contas e assinaturas com dia de vencimento: o que vence, o que já foi pago no mês e o peso na renda |
 | Fontes de renda | CLT, PJ, sociedade, empresa, freela, dividendos, aluguel… com valor esperado vs recebido e dia em que cai |
 | Investimentos | Carteira por tipo, aportes, resgates, proventos, atualização do valor de mercado e rentabilidade |
-| Patrimônio & Contas | Contas bancárias, participações em empresas/sociedades (com % e valuation), bens e dívidas |
+| Patrimônio & Contas | Contas bancárias, cartões de crédito (fatura, limite, vencimento), participações em empresas/sociedades (com % e valuation), bens e dívidas |
 | Crescimento | Evolução do patrimônio líquido, renda por tipo de fonte, taxa de poupança, aportes e resumo por ano |
 | Importar / Exportar | Bancos conectados via Open Finance, importação de extrato CSV/OFX, backup JSON, exportação CSV e restauração |
 
@@ -51,7 +51,8 @@ Se estiver subindo o projeto do zero: aplique as migrations (`accounts_open_fina
 
 ### O que a sincronização faz
 
-- **Contas**: cada conta/cartão do banco vira uma conta no app (ex.: "Nubank · Conta", "Nubank · Cartão"). Se já existir uma conta do mesmo tipo com o nome do banco no nome ou na instituição, ela é reaproveitada. Pode renomear à vontade: a ligação fica no campo `external_id`. Conta nova recebe saldo inicial ajustado para bater com o saldo do banco.
+- **Contas e cartões**: cada conta do banco vira uma conta no app ("Inter · Conta") e cada cartão vira um cartão ("Inter · Cartão MASTERCARD GOLD"), na seção **Cartões de crédito** de Patrimônio, com fatura atual, limite, disponível, fechamento e vencimento. Cartão não é conta: não entra no caixa, e a fatura em aberto conta como passivo. Se já existir uma conta do mesmo tipo com o nome do banco no nome ou na instituição, ela é reaproveitada. Pode renomear à vontade: a ligação fica no campo `external_id`.
+- **Saldos**: a cada sincronização o saldo inicial é ajustado para o saldo do app bater com o do banco (o que ficou fora da janela importada, como a fatura anterior, cai no saldo inicial). O valor informado pelo banco fica em `bank_balance`.
 - **Lançamentos**: `import_hash = pluggy:<id>` garante que nada entra duas vezes. Categoria pelas **palavras-chave** das categorias; despesa fixa e fonte de renda pelo nome (ex.: "Aluguel", "Salário"). Recebem a etiqueta `open-finance`.
 - **Transferências**: saída numa conta e entrada de mesmo valor em outra conta sua (até 1 dia de diferença) viram uma transferência só. Pagamento de fatura vira transferência conta → cartão, e o "pagamento recebido" do lado do cartão é ignorado.
 - **Cartão**: compras entram na data da compra (inclusive as da fatura aberta); parcelas vêm com "parcela 2/10" na observação.
@@ -73,7 +74,8 @@ Se apagar no app um lançamento dos últimos 7 dias, ele volta na próxima sincr
 - **Valor de um investimento** = último valor de mercado informado + aportes/rendimentos − resgates feitos depois dessa data. Sem valor informado, usa o total aportado.
 - **Aportes e resgates** registrados na página de Investimentos viram transferências nas transações, então não contam como despesa nem como receita.
 - **Empresas e sociedades** entram no patrimônio pela sua participação: valuation × %.
-- **Patrimônio líquido** = contas + investimentos + empresas e bens − dívidas (incluindo saldo negativo de cartão de crédito).
+- **Cartão de crédito** não é conta nem dinheiro: compras são despesas na data da compra, pagar a fatura é uma transferência da conta para o cartão, e a fatura em aberto entra como passivo.
+- **Patrimônio líquido** = contas + investimentos + empresas e bens − dívidas (incluindo fatura em aberto dos cartões).
 
 ## Lançar por voz (MCP)
 

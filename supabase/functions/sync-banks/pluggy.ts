@@ -30,7 +30,16 @@ export interface PluggyAccount {
   number?: string | null
   balance: number
   currencyCode?: string
-  creditData?: { brand?: string | null; level?: string | null } | null
+  creditData?: {
+    brand?: string | null
+    level?: string | null
+    creditLimit?: number | null
+    availableCreditLimit?: number | null
+    /** data de fechamento da fatura atual (ISO) */
+    balanceCloseDate?: string | null
+    /** data de vencimento da fatura atual (ISO) */
+    balanceDueDate?: string | null
+  } | null
 }
 
 export interface PluggyTransaction {

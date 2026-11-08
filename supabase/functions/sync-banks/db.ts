@@ -1,6 +1,7 @@
 // Acesso ao banco do Duzz Finance para um usuário específico (service role, filtrando por user_id)
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { lastDay } from './text.ts'
 
 export type TxType = 'expense' | 'income' | 'transfer'
 
@@ -151,8 +152,26 @@ export class Db {
     return toAccount(row)
   }
 
-  async updateAccount(id: number, patch: { initialBalance?: number; externalId?: string | null; syncedAt?: string | null; institution?: string | null }) {
+  async updateAccount(
+    id: number,
+    patch: {
+      name?: string
+      initialBalance?: number
+      externalId?: string | null
+      syncedAt?: string | null
+      institution?: string | null
+      bankBalance?: number | null
+      creditLimit?: number | null
+      closingDay?: number | null
+      dueDay?: number | null
+    },
+  ) {
     const row: Row = {}
+    if (patch.name !== undefined) row.name = patch.name
+    if (patch.bankBalance !== undefined) row.bank_balance = patch.bankBalance
+    if (patch.creditLimit !== undefined) row.credit_limit = patch.creditLimit
+    if (patch.closingDay !== undefined) row.closing_day = patch.closingDay
+    if (patch.dueDay !== undefined) row.due_day = patch.dueDay
     if (patch.initialBalance !== undefined) row.initial_balance = patch.initialBalance
     if (patch.externalId !== undefined) row.external_id = patch.externalId
     if (patch.syncedAt !== undefined) row.synced_at = patch.syncedAt
@@ -219,7 +238,7 @@ export class Db {
         .eq('user_id', this.userId)
         .not('recurring_expense_id', 'is', null)
         .gte('date', `${sorted[0]}-01`)
-        .lte('date', `${sorted[sorted.length - 1]}-31`)
+        .lte('date', lastDay(sorted[sorted.length - 1]))
         .limit(10000),
     )
     for (const r of rows) out.add(`${r.recurring_expense_id}:${String(r.date).slice(0, 7)}`)

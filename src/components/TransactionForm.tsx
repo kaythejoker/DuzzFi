@@ -50,6 +50,8 @@ export function TransactionForm({ open, onClose, editing, defaults }: Transactio
     [categories, form.type],
   )
   const activeAccounts = accounts.filter((a) => !a.archived)
+  const bankAccounts = activeAccounts.filter((a) => a.type !== 'credit_card')
+  const cards = activeAccounts.filter((a) => a.type === 'credit_card')
 
   function set<K extends keyof Transaction>(k: K, v: Transaction[K]) {
     setForm((f) => ({ ...f, [k]: v }))
@@ -214,9 +216,18 @@ export function TransactionForm({ open, onClose, editing, defaults }: Transactio
               onChange={(e) => set('accountId', e.target.value ? Number(e.target.value) : undefined)}
             >
               <option value="">— Nenhuma —</option>
-              {activeAccounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
-              ))}
+              <optgroup label="Contas">
+                {bankAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </optgroup>
+              {cards.length > 0 && form.type !== 'transfer' && (
+                <optgroup label="Cartões de crédito">
+                  {cards.map((a) => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </Field>
           {form.type === 'transfer' && (
@@ -227,9 +238,18 @@ export function TransactionForm({ open, onClose, editing, defaults }: Transactio
                 onChange={(e) => set('toAccountId', e.target.value ? Number(e.target.value) : undefined)}
               >
                 <option value="">— Escolha —</option>
-                {activeAccounts.filter((a) => a.id !== form.accountId).map((a) => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
-                ))}
+                <optgroup label="Contas">
+                  {bankAccounts.filter((a) => a.id !== form.accountId).map((a) => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </optgroup>
+                {cards.length > 0 && (
+                  <optgroup label="Pagar fatura do cartão">
+                    {cards.filter((a) => a.id !== form.accountId).map((a) => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </Field>
           )}

@@ -16,6 +16,14 @@ export interface Account {
   externalId?: string
   /** última sincronização via Open Finance */
   syncedAt?: string
+  /** saldo informado pelo banco na última sincronização (cartão: valor devido, negativo) */
+  bankBalance?: number
+  /** cartão de crédito: limite total */
+  creditLimit?: number
+  /** cartão de crédito: dia em que a fatura fecha */
+  closingDay?: number
+  /** cartão de crédito: dia em que a fatura vence */
+  dueDay?: number
   createdAt: string
 }
 
