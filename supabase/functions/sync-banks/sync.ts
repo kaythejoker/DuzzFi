@@ -400,6 +400,15 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
     const isCard = l.pluggyAcc.type === 'CREDIT'
     const bankBalance = isCard ? -Math.abs(l.pluggyAcc.balance) : l.pluggyAcc.balance
     const cd = l.pluggyAcc.creditData
+    // fatura atual = a próxima a vencer (o saldo do cartão inclui parcelas futuras, a fatura não)
+    let bill: { total: number; due: string } | undefined
+    if (isCard) {
+      const bills = (await pluggy.bills(l.pluggyAcc.id))
+        .filter((b) => b.dueDate && Number.isFinite(Number(b.totalAmount)))
+        .map((b) => ({ total: Math.abs(Number(b.totalAmount)), due: localDate(b.dueDate) }))
+        .sort((a, b) => a.due.localeCompare(b.due))
+      bill = bills.find((b) => b.due >= today) ?? bills[bills.length - 1]
+    }
     try {
       const sync = Number.isFinite(bankBalance) && !(bankBalance === 0 && !l.created && !isCard && fetchedBy.get(l.app.id) === 0)
       await db.updateAccount(l.app.id, {
@@ -410,7 +419,9 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
           ? {
               creditLimit: typeof cd?.creditLimit === 'number' ? cd.creditLimit : undefined,
               closingDay: dayOf(cd?.balanceCloseDate),
-              dueDay: dayOf(cd?.balanceDueDate),
+              dueDay: bill ? Number(bill.due.slice(8, 10)) : dayOf(cd?.balanceDueDate),
+              currentBill: bill ? bill.total : null,
+              billDueDate: bill ? bill.due : null,
             }
           : {}),
       })
@@ -419,8 +430,10 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
     }
     const n = rows.filter((r) => r.accountId === l.app.id || r.toAccountId === l.app.id).length
     const fetched = fetchedBy.get(l.app.id) ?? 0
-    const label = isCard ? 'fatura' : 'saldo'
-    lines.push(`${l.app.name}: ${n ? `+${n} lançamento${n > 1 ? 's' : ''}` : 'nada novo'} (${fetched} no período) · ${label} no banco ${brl(Math.abs(bankBalance))}`)
+    const status = isCard
+      ? `${bill ? `fatura atual ${brl(bill.total)} (vence ${bill.due.slice(8, 10)}/${bill.due.slice(5, 7)}) · ` : ''}limite usado ${brl(Math.abs(bankBalance))}`
+      : `saldo no banco ${brl(bankBalance)}`
+    lines.push(`${l.app.name}: ${n ? `+${n} lançamento${n > 1 ? 's' : ''}` : 'nada novo'} (${fetched} no período) · ${status}`)
   }
 
   // estado por item (aparece no app)

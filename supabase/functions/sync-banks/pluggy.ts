@@ -61,6 +61,14 @@ export interface PluggyTransaction {
   paymentData?: { paymentMethod?: string | null } | null
 }
 
+export interface PluggyBill {
+  id: string
+  /** vencimento (ISO) */
+  dueDate: string
+  totalAmount: number
+  minimumPaymentAmount?: number | null
+}
+
 export class Pluggy {
   private key?: { value: string; expiresAt: number }
   private legacyTransactions = false
@@ -102,6 +110,16 @@ export class Pluggy {
   async accounts(itemId: string) {
     const r = await this.get<{ results: PluggyAccount[] }>(`/accounts?itemId=${encodeURIComponent(itemId)}`)
     return r.results ?? []
+  }
+
+  /** Faturas do cartão (vazio se o plano/conector não oferecer) */
+  async bills(accountId: string): Promise<PluggyBill[]> {
+    try {
+      const r = await this.get<{ results: PluggyBill[] }>(`/bills?accountId=${encodeURIComponent(accountId)}`)
+      return r.results ?? []
+    } catch {
+      return []
+    }
   }
 
   /** Transações de uma conta entre duas datas (yyyy-MM-dd, inclusivas), todas as páginas */

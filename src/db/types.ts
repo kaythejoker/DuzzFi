@@ -24,6 +24,10 @@ export interface Account {
   closingDay?: number
   /** cartão de crédito: dia em que a fatura vence */
   dueDay?: number
+  /** cartão de crédito: valor da fatura atual (próxima a vencer), vindo do banco */
+  currentBill?: number
+  /** cartão de crédito: vencimento da fatura atual (yyyy-MM-dd) */
+  billDueDate?: string
   createdAt: string
 }
 

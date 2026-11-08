@@ -172,9 +172,13 @@ export class Db {
       creditLimit?: number | null
       closingDay?: number | null
       dueDay?: number | null
+      currentBill?: number | null
+      billDueDate?: string | null
     },
   ) {
     const row: Row = {}
+    if (patch.currentBill !== undefined) row.current_bill = patch.currentBill
+    if (patch.billDueDate !== undefined) row.bill_due_date = patch.billDueDate
     if (patch.name !== undefined) row.name = patch.name
     if (patch.bankBalance !== undefined) row.bank_balance = patch.bankBalance
     if (patch.creditLimit !== undefined) row.credit_limit = patch.creditLimit

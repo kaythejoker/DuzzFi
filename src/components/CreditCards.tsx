@@ -16,11 +16,16 @@ export interface CardRow {
  */
 export function CreditCardsCard({ rows, onAdd, onEdit, onDelete }: { rows: CardRow[]; onAdd: () => void; onEdit: (a: Account) => void; onDelete: (a: Account) => void }) {
   const totalOwed = rows.reduce((s, r) => s + Math.max(0, -r.balance), 0)
+  const totalBill = rows.reduce((s, r) => s + (r.acc.currentBill ?? Math.max(0, -r.balance)), 0)
   const totalLimit = rows.reduce((s, r) => s + (r.acc.creditLimit ?? 0), 0)
   return (
     <Card
       title="Cartões de crédito"
-      subtitle={rows.length ? `Fatura em aberto: ${fmtBRL(totalOwed)}${totalLimit ? ` · limite total ${fmtBRL(totalLimit)}` : ''}` : 'Fatura, limite, fechamento e vencimento. Não entram no caixa.'}
+      subtitle={
+        rows.length
+          ? `Faturas atuais: ${fmtBRL(totalBill)} · limite usado ${fmtBRL(totalOwed)}${totalLimit ? ` de ${fmtBRL(totalLimit)}` : ''}`
+          : 'Fatura, limite, fechamento e vencimento. Não entram no caixa.'
+      }
       className="mb-4"
       action={<button className="btn-secondary py-1.5!" onClick={onAdd}><Plus size={14} /> Cartão</button>}
     >
@@ -30,6 +35,9 @@ export function CreditCardsCard({ rows, onAdd, onEdit, onDelete }: { rows: CardR
         <ul className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
           {rows.map(({ acc, balance }) => {
             const owed = Math.max(0, -balance)
+            // fatura atual vem do banco quando o Open Finance informa; senão, o que está devido
+            const bill = acc.currentBill ?? owed
+            const due = acc.billDueDate ? `${acc.billDueDate.slice(8, 10)}/${acc.billDueDate.slice(5, 7)}` : acc.dueDay ? `dia ${acc.dueDay}` : null
             const credit = Math.max(0, balance)
             const limit = acc.creditLimit ?? 0
             const available = limit ? Math.max(0, limit - owed) : null
@@ -57,11 +65,17 @@ export function CreditCardsCard({ rows, onAdd, onEdit, onDelete }: { rows: CardR
 
                 <div className="mt-3 flex items-end justify-between gap-2">
                   <div>
-                    <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted">Fatura atual</p>
-                    <p className={`font-display text-xl font-bold tabular-nums ${owed ? 'text-expense' : 'text-text'}`}>{fmtBRL(owed)}</p>
+                    <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted">Fatura atual{due ? ` · vence ${due}` : ''}</p>
+                    <p className={`font-display text-xl font-bold tabular-nums ${bill ? 'text-expense' : 'text-text'}`}>{fmtBRL(bill)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted">Limite usado</p>
+                    <p className="text-sm font-semibold tabular-nums">
+                      {fmtBRL(owed)}
+                      {!!pct && <span className="text-muted font-normal"> · {Math.round(pct * 100)}%</span>}
+                    </p>
                   </div>
                   {credit > 0 && <Badge color="#2fd18b">crédito {fmtBRL(credit)}</Badge>}
-                  {!!pct && <span className="text-xs text-muted tabular-nums">{Math.round(pct * 100)}% do limite</span>}
                 </div>
 
                 {limit > 0 && (
@@ -79,6 +93,7 @@ export function CreditCardsCard({ rows, onAdd, onEdit, onDelete }: { rows: CardR
                   {acc.closingDay ? `fecha dia ${acc.closingDay}` : 'fechamento não informado'}
                   {' · '}
                   {acc.dueDay ? `vence dia ${acc.dueDay}` : 'vencimento não informado'}
+                  {acc.externalId && acc.currentBill == null ? ' · banco não separou a fatura do limite' : ''}
                 </p>
               </li>
             )

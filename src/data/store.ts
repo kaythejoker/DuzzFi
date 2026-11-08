@@ -95,7 +95,7 @@ function fromDb<T>(row: Record<string, unknown>): T {
   for (const [k, v] of Object.entries(row)) {
     if (k === 'user_id' || v === null) continue
     // numeric pode vir como string dependendo da precisão
-    out[toCamel(k)] = typeof v === 'string' && /^(amount|value|budget|initial_balance|expected_monthly|ownership_pct|bank_balance|credit_limit)$/.test(k) ? Number(v) : v
+    out[toCamel(k)] = typeof v === 'string' && /^(amount|value|budget|initial_balance|expected_monthly|ownership_pct|bank_balance|credit_limit|current_bill)$/.test(k) ? Number(v) : v
   }
   return out as T
 }
