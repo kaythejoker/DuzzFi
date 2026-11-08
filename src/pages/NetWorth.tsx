@@ -120,7 +120,7 @@ export function NetWorthPage() {
                     </span>
                     <div className="min-w-0">
                       <p className="font-medium truncate">{acc.name}</p>
-                      <p className="text-[11px] text-muted">{ACCOUNT_TYPE_LABEL[acc.type]}{acc.institution ? ` · ${acc.institution}` : ''}</p>
+                      <p className="text-[11px] text-muted">{ACCOUNT_TYPE_LABEL[acc.type]}{acc.institution ? ` · ${acc.institution}` : ''}{acc.externalId ? ' · Open Finance' : ''}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">

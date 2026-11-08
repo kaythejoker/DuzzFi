@@ -5,7 +5,6 @@ import { z } from 'zod'
 import { defaultAccountId, findByName, handlePhrase, monthSummary, txLine } from './actions'
 import type { NewTransaction, TxType } from './domain'
 import type { Finance } from './finance'
-import { formatReport, type SyncReport } from './sync'
 import { dayInYM, keywordMatches, normalize, todayISO } from './text'
 
 const TYPE_MAP: Record<string, TxType> = { despesa: 'expense', receita: 'income', transferencia: 'transfer' }
@@ -24,7 +23,7 @@ async function run(fn: () => Promise<string>): Promise<ToolResult> {
   }
 }
 
-export function buildMcpServer(finance: Finance, opts: { defaultAccount?: string; sync?: () => Promise<SyncReport> } = {}) {
+export function buildMcpServer(finance: Finance, opts: { defaultAccount?: string } = {}) {
   const server = new McpServer(
     { name: 'duzz-finance', version: '1.0.0' },
     {
@@ -33,9 +32,6 @@ export function buildMcpServer(finance: Finance, opts: { defaultAccount?: string
         'Para anotar algo que o usuário falou ou ditou, prefira `lancar_frase` com a frase como ele disse; use `registrar_lancamento` quando já souber os campos.',
         'Depois de lançar, confirme em uma linha o que foi gravado. Se ele disser que errou, use `desfazer_ultimo` ou `editar_lancamento`.',
         'Use `cadastros` para ver nomes exatos de categorias, contas, despesas fixas e fontes de renda.',
-        ...(opts.sync
-          ? ['`sincronizar_bancos` puxa agora as transações dos bancos conectados via Open Finance (elas também entram sozinhas periodicamente).']
-          : []),
       ].join(' '),
     },
   )
@@ -256,22 +252,6 @@ export function buildMcpServer(finance: Finance, opts: { defaultAccount?: string
         ].join('\n')
       }),
   )
-
-  if (opts.sync) {
-    const sync = opts.sync
-    server.registerTool(
-      'sincronizar_bancos',
-      {
-        title: 'Sincronizar bancos (Open Finance)',
-        description:
-          'Busca agora as transações novas dos bancos e cartões conectados via Open Finance (Pluggy) e grava como lançamentos, ' +
-          'categorizados pelas palavras-chave. Mostra o saldo de cada conta no banco. Pode levar alguns segundos.',
-        inputSchema: {},
-        annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true },
-      },
-      () => run(async () => formatReport(await sync())),
-    )
-  }
 
   return server
 }

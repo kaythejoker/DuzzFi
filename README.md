@@ -34,7 +34,30 @@ Na primeira entrada o app cria as categorias padrão e uma conta "Conta principa
 | Investimentos | Carteira por tipo, aportes, resgates, proventos, atualização do valor de mercado e rentabilidade |
 | Patrimônio & Contas | Contas bancárias, participações em empresas/sociedades (com % e valuation), bens e dívidas |
 | Crescimento | Evolução do patrimônio líquido, renda por tipo de fonte, taxa de poupança, aportes e resumo por ano |
-| Importar / Exportar | Importação de extrato CSV/OFX, backup JSON, exportação CSV e restauração |
+| Importar / Exportar | Bancos conectados via Open Finance, importação de extrato CSV/OFX, backup JSON, exportação CSV e restauração |
+
+## Open Finance: transações dos bancos entrando sozinhas
+
+Com o [Meu Pluggy](https://meu.pluggy.ai) (gratuito para pessoa física) as transações de todos os seus bancos e cartões entram no app sem importar extrato. Tudo roda no Supabase: uma Edge Function (`supabase/functions/sync-banks`) agendada pelo `pg_cron` a cada 6 horas, mais o botão **Sincronizar agora** na página Importar / Exportar. Os bancos atualizam no Meu Pluggy uma vez por dia.
+
+### Configurar uma vez
+
+1. Crie a conta em [meu.pluggy.ai](https://meu.pluggy.ai) e conecte seus bancos (o consentimento é feito no app de cada banco).
+2. Entre em [dashboard.pluggy.ai](https://dashboard.pluggy.ai) com a mesma conta, abra a aplicação **demo** e conecte seus itens do Meu Pluggy a ela, escolhendo o conector **Meu Pluggy** (não o do banco direto). Cada banco vira um **item** com um id.
+3. No Supabase, em **Edge Functions → Secrets**, crie `PLUGGY_CLIENT_ID` e `PLUGGY_CLIENT_SECRET` com os valores da aplicação demo.
+4. No app, em **Importar / Exportar → Open Finance**, cole o id de cada item e clique em **Conectar banco**. Depois **Sincronizar agora**.
+
+Se estiver subindo o projeto do zero: aplique as migrations (`accounts_open_finance` e `open_finance_items`, que também criam o segredo no Vault e o agendamento) e faça o deploy da função com `supabase functions deploy sync-banks --no-verify-jwt`.
+
+### O que a sincronização faz
+
+- **Contas**: cada conta/cartão do banco vira uma conta no app (ex.: "Nubank · Conta", "Nubank · Cartão"). Se já existir uma conta do mesmo tipo com o nome do banco no nome ou na instituição, ela é reaproveitada. Pode renomear à vontade: a ligação fica no campo `external_id`. Conta nova recebe saldo inicial ajustado para bater com o saldo do banco.
+- **Lançamentos**: `import_hash = pluggy:<id>` garante que nada entra duas vezes. Categoria pelas **palavras-chave** das categorias; despesa fixa e fonte de renda pelo nome (ex.: "Aluguel", "Salário"). Recebem a etiqueta `open-finance`.
+- **Transferências**: saída numa conta e entrada de mesmo valor em outra conta sua (até 1 dia de diferença) viram uma transferência só. Pagamento de fatura vira transferência conta → cartão, e o "pagamento recebido" do lado do cartão é ignorado.
+- **Cartão**: compras entram na data da compra (inclusive as da fatura aberta); parcelas vêm com "parcela 2/10" na observação.
+- **Primeira sincronização** traz 90 dias. Se já importou extrato desses meses, vai duplicar (o hash do extrato é outro): apague os lançamentos antigos antes ou conecte só depois.
+
+Se apagar no app um lançamento dos últimos 7 dias, ele volta na próxima sincronização (essa janela é reconferida). Quando um banco pede reconexão, o item aparece como "reconectar no Meu Pluggy".
 
 ## Importando extratos
 

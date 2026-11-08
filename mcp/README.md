@@ -5,7 +5,6 @@ Lance gastos e receitas falando. Tudo roda na sua VPS:
 ```
 iPhone ──(Atalho / Siri: áudio)──► /voz ──► Whisper local ──► entende a frase ──► Supabase
 Claude (iPhone, desktop, Code) ──► /mcp/<token> ──► ferramentas do Duzz Finance ──► Supabase
-Seus bancos ──(Open Finance / Meu Pluggy)──► sincronização a cada 6h ──► lançamentos ──► Supabase
 ```
 
 - **`server/`**: servidor Node. Tem o MCP (Streamable HTTP) e a rota de voz.
@@ -30,7 +29,7 @@ A categoria sai das **palavras-chave das categorias** do app (as mesmas da impor
 
 ## Ferramentas do MCP
 
-`lancar_frase`, `registrar_lancamento`, `desfazer_ultimo`, `editar_lancamento`, `apagar_lancamento`, `ultimos_lancamentos`, `resumo_mes`, `cadastros` e, com o Open Finance configurado, `sincronizar_bancos`.
+`lancar_frase`, `registrar_lancamento`, `desfazer_ultimo`, `editar_lancamento`, `apagar_lancamento`, `ultimos_lancamentos`, `resumo_mes` e `cadastros`.
 
 ---
 
@@ -144,36 +143,6 @@ O token vai na URL porque o conector personalizado do claude.ai não aceita cabe
 
 ---
 
-## Open Finance: transações dos bancos entrando sozinhas
-
-Com o [Meu Pluggy](https://meu.pluggy.ai) (gratuito para pessoa física) o servidor puxa as transações de todos os seus bancos e cartões e grava como lançamentos, sem importar extrato. Os bancos atualizam no Meu Pluggy uma vez por dia; o servidor confere a cada 6 h (`PLUGGY_SYNC_HOURS`).
-
-### Configurar
-
-1. Crie a conta em [meu.pluggy.ai](https://meu.pluggy.ai) e conecte seus bancos (o consentimento é feito no app de cada banco).
-2. Entre em [dashboard.pluggy.ai](https://dashboard.pluggy.ai) com a mesma conta, abra a aplicação **demo** e conecte os itens do Meu Pluggy a ela. Copie o **Client ID**, o **Client Secret** e o **id de cada item** (um por banco).
-3. Aplique a migration `supabase/migrations/20261108120000_accounts_open_finance.sql` no Supabase (SQL Editor ou `supabase db push`).
-4. No `.env` da VPS preencha `PLUGGY_CLIENT_ID`, `PLUGGY_CLIENT_SECRET` e `PLUGGY_ITEMS` (ids separados por vírgula) e rode `docker compose up -d`.
-
-A primeira sincronização começa 15 s depois de subir e traz os últimos 90 dias (`PLUGGY_FIRST_SYNC_DAYS`). Para forçar agora:
-
-```bash
-curl -X POST "https://SEU_DOMINIO/sync?formato=texto" -H "Authorization: Bearer SEU_TOKEN"
-```
-
-Ou peça ao Claude: *"sincroniza os bancos"* (ferramenta `sincronizar_bancos`). `GET /sync` mostra a última sincronização.
-
-### O que ela faz
-
-- **Contas**: cada conta/cartão do banco vira uma conta no app (ex.: "Nubank · Conta", "Nubank · Cartão"). Se já existir uma conta do mesmo tipo com o nome do banco no nome ou na instituição, ela é reaproveitada. Pode renomear à vontade no app: a ligação fica no campo `external_id`. Conta nova recebe o saldo inicial ajustado para bater com o saldo do banco.
-- **Lançamentos**: `import_hash = pluggy:<id>` garante que nada entra duas vezes. Categoria pelas **palavras-chave** das categorias; despesa fixa e fonte de renda pelo nome (ex.: "Aluguel", "Salário"). Recebem a etiqueta `open-finance` e a observação "Banco via Open Finance".
-- **Transferências**: saída numa conta e entrada de mesmo valor em outra conta sua (até 1 dia de diferença) viram uma transferência só. Pagamento de fatura vira transferência conta → cartão, e o "pagamento recebido" do lado do cartão é ignorado.
-- **Cartão**: compras entram na data da compra (inclusive as da fatura aberta); parcelas vêm com "parcela 2/10" na observação.
-
-Se apagar no app um lançamento dos últimos 7 dias, ele volta na próxima sincronização (o servidor reconfere essa janela). Lançamentos mais antigos apagados não voltam.
-
-Quando um banco pede reconexão, a sincronização avisa (`LOGIN_ERROR`): refaça o consentimento no Meu Pluggy.
-
 ## Manutenção
 
 ```bash
@@ -194,6 +163,6 @@ docker compose restart            # reiniciar
 ```bash
 cd mcp/server
 npm install
-npm test           # testes do interpretador de frases e da sincronização
+npm test           # testes do interpretador de frases
 npm run typecheck
 ```

@@ -5,17 +5,14 @@
 // "pluggy:<id>", categorizados pelas palavras-chave do app. Pares saída/entrada entre contas suas
 // viram transferência; pagamento de fatura vira transferência da conta para o cartão.
 
-import type { Account, Category, NewTransaction, Registry, TxType } from './domain'
-import type { Finance } from './finance'
-import type { Pluggy, PluggyAccount, PluggyItem, PluggyTransaction } from './pluggy'
-import { addDays, brl, keywordMatches, normalize, todayISO, wholeWord } from './text'
+import type { Account, Category, Db, NewTransaction, OpenFinanceItem, Registry } from './db.ts'
+import type { Pluggy, PluggyAccount, PluggyItem, PluggyTransaction } from './pluggy.ts'
+import { addDays, brl, keywordMatches, normalize, todayISO, wholeWord } from './text.ts'
 
 export const HASH_PREFIX = 'pluggy:'
 export const SYNC_TAG = 'open-finance'
 
 export interface SyncOptions {
-  /** ids dos itens do Pluggy (um por banco conectado) */
-  items: string[]
   /** quantos dias para trás na primeira sincronização de uma conta */
   firstSyncDays?: number
   /** quantos dias antes do último lançamento importado reconferir (lançamentos que o banco posta atrasado) */
@@ -124,7 +121,7 @@ export function pairTransfers(cands: Candidate[], accounts: Account[]): Mapped[]
         inc.amount === exp.amount &&
         Math.abs(dayDiff(inc.date, exp.date)) <= 1 &&
         // entrada no cartão só casa se for pagamento de fatura
-        (inc.bank !== 'CREDIT' || inc.cardPayment || PAYMENT_RE.test(inc.description) || CARD_BILL_RE.test(exp.description)),
+        (inc.bank !== 'CREDIT' || PAYMENT_RE.test(inc.description) || CARD_BILL_RE.test(exp.description)),
     )
     if (match) {
       used.add(match.pluggyId)
@@ -188,18 +185,13 @@ function matchName<T extends { name: string }>(text: string, items: T[]): T | un
 
 export function toTransaction(c: Mapped, reg: Registry, paidBills: Set<string>): NewTransaction {
   const text = `${c.description} ${c.memo}`
-  const notes = [
-    `${c.institution} via Open Finance`,
-    c.installment ? `parcela ${c.installment}` : '',
-    c.pending ? 'pendente' : '',
-    c.memo && c.memo !== c.description ? c.memo : '',
-  ]
+  const notes = [`${c.institution} via Open Finance`, c.installment ? `parcela ${c.installment}` : '', c.pending ? 'pendente' : '', c.memo && c.memo !== c.description ? c.memo : '']
     .filter(Boolean)
     .join(' · ')
   const base: NewTransaction = {
     date: c.date,
     amount: c.amount,
-    type: 'expense' as TxType,
+    type: 'expense',
     description: c.description,
     accountId: c.accountId,
     notes,
@@ -257,27 +249,33 @@ export function guessExisting(acc: PluggyAccount, institution: string, accounts:
 
 // ---------- a sincronização ----------
 
-export async function syncBanks(finance: Finance, pluggy: Pluggy, opts: SyncOptions): Promise<SyncReport> {
+export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[], opts: SyncOptions = {}): Promise<SyncReport> {
   const startedAt = new Date().toISOString()
   const today = opts.today ?? todayISO()
   const firstSyncDays = opts.firstSyncDays ?? 90
   const overlapDays = opts.overlapDays ?? 7
   const lines: string[] = []
   const errors: string[] = []
-  let reg = await finance.registry(true)
+  let reg = await db.registry()
 
-  type Linked = { pluggyAcc: PluggyAccount; app: Account; created: boolean; item: PluggyItem; from: string }
+  type Linked = { pluggyAcc: PluggyAccount; app: Account; created: boolean; item: PluggyItem; row: OpenFinanceItem; from: string }
   const linked: Linked[] = []
+  const itemErrors = new Map<number, string[]>()
+  const fail = (row: OpenFinanceItem, text: string) => {
+    errors.push(text)
+    itemErrors.set(row.id, [...(itemErrors.get(row.id) ?? []), text])
+  }
 
-  for (const itemId of opts.items) {
+  for (const row of items) {
     let item: PluggyItem
     try {
-      item = await pluggy.item(itemId)
+      item = await pluggy.item(row.itemId)
     } catch (e) {
-      errors.push(`Item ${itemId}: ${msg(e)}`)
+      fail(row, `Item ${row.name ?? row.itemId}: ${msg(e)}`)
       continue
     }
     const institution = item.connector?.name ?? 'Banco'
+    await db.updateItem(row.id, { name: institution, status: item.status }).catch(() => undefined)
     if (item.status === 'LOGIN_ERROR' || item.status === 'WAITING_USER_INPUT') {
       lines.push(`${institution}: conexão precisa de atenção (${item.status}). Reconecte no Meu Pluggy.`)
     } else if (item.status === 'OUTDATED') {
@@ -285,9 +283,9 @@ export async function syncBanks(finance: Finance, pluggy: Pluggy, opts: SyncOpti
     }
     let accounts: PluggyAccount[]
     try {
-      accounts = await pluggy.accounts(itemId)
+      accounts = await pluggy.accounts(row.itemId)
     } catch (e) {
-      errors.push(`${institution}: ${msg(e)}`)
+      fail(row, `${institution}: ${msg(e)}`)
       continue
     }
     for (const pluggyAcc of accounts) {
@@ -298,84 +296,88 @@ export async function syncBanks(finance: Finance, pluggy: Pluggy, opts: SyncOpti
         if (!app) {
           const existing = guessExisting(pluggyAcc, institution, reg.accounts)
           if (existing) {
-            await finance.updateAccount(existing.id, { externalId, institution: existing.institution ?? institution })
+            await db.updateAccount(existing.id, { externalId, institution: existing.institution ?? institution })
             app = { ...existing, externalId }
             lines.push(`${institution}: liguei à conta "${existing.name}" do app.`)
           } else {
-            app = await finance.createAccount({ name: accountLabel(pluggyAcc, institution), type: appAccountType(pluggyAcc), institution, externalId })
+            app = await db.createAccount({ name: accountLabel(pluggyAcc, institution), type: appAccountType(pluggyAcc), institution, externalId })
             created = true
             lines.push(`${institution}: criei a conta "${app.name}" no app.`)
           }
-          reg = await finance.registry(true)
+          reg = await db.registry()
         }
-        const last = await finance.lastImportedDate(app.id, HASH_PREFIX)
+        const last = await db.lastImportedDate(app.id, HASH_PREFIX)
         const from = last ? addDays(last, -overlapDays) : addDays(today, -firstSyncDays)
-        linked.push({ pluggyAcc, app, created, item, from })
+        linked.push({ pluggyAcc, app, created, item, row, from })
       } catch (e) {
-        errors.push(`${institution} (${pluggyAcc.name}): ${msg(e)}`)
+        fail(row, `${institution} (${pluggyAcc.name}): ${msg(e)}`)
       }
     }
   }
 
   // busca as transações de todas as contas antes de casar transferências entre elas
   const cands: Candidate[] = []
-  const perAccount = new Map<number, { fetched: number }>()
+  const fetchedBy = new Map<number, number>()
   for (const l of linked) {
     try {
       const txs = await pluggy.transactions(l.pluggyAcc.id, l.from, today)
-      perAccount.set(l.app.id, { fetched: txs.length })
+      fetchedBy.set(l.app.id, txs.length)
       for (const t of txs) {
         const c = toCandidate(t, l.pluggyAcc, l.app.id, l.item.connector?.name ?? 'Banco')
         if (c) cands.push(c)
       }
     } catch (e) {
-      errors.push(`${l.app.name}: ${msg(e)}`)
+      fail(l.row, `${l.app.name}: ${msg(e)}`)
     }
   }
 
   // o que já está no app (qualquer lançamento com esse id, inclusive transferências casadas "id1+id2")
   const minFrom = linked.reduce((m, l) => (l.from < m ? l.from : m), today)
   const seen = new Set<string>()
-  for (const h of await finance.importHashes(HASH_PREFIX, addDays(minFrom, -overlapDays))) for (const id of h.slice(HASH_PREFIX.length).split('+')) seen.add(id)
+  for (const h of await db.importHashes(HASH_PREFIX, addDays(minFrom, -overlapDays))) for (const id of h.slice(HASH_PREFIX.length).split('+')) seen.add(id)
 
   const fresh = cands.filter((c) => !seen.has(c.pluggyId) && !c.cardPayment)
   const skipped = cands.filter((c) => seen.has(c.pluggyId)).length
   const mapped = pairTransfers(fresh, reg.accounts)
 
-  // despesas fixas já pagas nos meses envolvidos (para não marcar duas vezes)
-  const paidBills = new Set<string>()
-  if (mapped.length) {
-    const months = [...new Set(mapped.map((c) => c.date.slice(0, 7)))].sort()
-    for (const ym of months) for (const t of await finance.month(ym)) if (t.recurringExpenseId) paidBills.add(`${t.recurringExpenseId}:${ym}`)
-  }
-
+  const paidBills = await db.paidBills([...new Set(mapped.map((c) => c.date.slice(0, 7)))])
   const rows = mapped.sort((a, b) => a.date.localeCompare(b.date)).map((c) => toTransaction(c, reg, paidBills))
   let added = 0
   if (rows.length) {
     try {
-      added = (await finance.insertMany(rows)).length
+      added = await db.insertMany(rows)
     } catch (e) {
       errors.push(`Gravando lançamentos: ${msg(e)}`)
     }
   }
 
   // saldo inicial da conta recém-criada = saldo do banco - efeito dos lançamentos importados
-  const balances = await finance.balances()
+  const balances = await db.balances(reg.accounts)
+  const now = new Date().toISOString()
   for (const l of linked) {
-    const bal = balances.find((b) => b.account.id === l.app.id)?.balance ?? 0
+    const bal = balances.get(l.app.id) ?? 0
     const bankBalance = l.pluggyAcc.type === 'CREDIT' ? -Math.abs(l.pluggyAcc.balance) : l.pluggyAcc.balance
     try {
       if (l.created && Number.isFinite(bankBalance)) {
-        const initial = Math.round((bankBalance - bal) * 100) / 100
-        await finance.updateAccount(l.app.id, { initialBalance: initial, syncedAt: new Date().toISOString() })
-      } else await finance.updateAccount(l.app.id, { syncedAt: new Date().toISOString() })
+        await db.updateAccount(l.app.id, { initialBalance: Math.round((bankBalance - bal) * 100) / 100, syncedAt: now })
+      } else await db.updateAccount(l.app.id, { syncedAt: now })
     } catch (e) {
-      errors.push(`${l.app.name}: ${msg(e)}`)
+      fail(l.row, `${l.app.name}: ${msg(e)}`)
     }
     const n = rows.filter((r) => r.accountId === l.app.id || r.toAccountId === l.app.id).length
-    const fetched = perAccount.get(l.app.id)?.fetched ?? 0
+    const fetched = fetchedBy.get(l.app.id) ?? 0
     const drift = !l.created && Math.abs(bankBalance - bal) >= 0.01 ? ` · no app ${brl(bal)}` : ''
     lines.push(`${l.app.name}: ${n ? `+${n} lançamento${n > 1 ? 's' : ''}` : 'nada novo'} (${fetched} no período) · saldo no banco ${brl(bankBalance)}${drift}`)
+  }
+
+  // estado por item (aparece no app)
+  for (const row of items) {
+    const errs = itemErrors.get(row.id)
+    const mine = linked.filter((l) => l.row.id === row.id).map((l) => l.app.name)
+    const report = lines.filter((ln) => mine.some((name) => ln.startsWith(name))).join('\n')
+    await db
+      .updateItem(row.id, { lastSyncedAt: errs ? undefined : now, lastReport: report || null, lastError: errs ? errs.join(' | ') : null })
+      .catch(() => undefined)
   }
 
   return { ok: errors.length === 0, added, skipped, lines, errors, startedAt, finishedAt: new Date().toISOString() }

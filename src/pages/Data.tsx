@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Database, Download, FileSpreadsheet, FileUp, Upload } from 'lucide-react'
 import { PageHeader } from '../components/Shell'
+import { OpenFinanceCard } from '../components/OpenFinance'
 import { Badge, Card, Confirm, Field, Modal } from '../components/ui'
 import { useAccounts, useCategories, useIncomeSources } from '../hooks/useData'
 import { repo } from '../data/store'
@@ -149,7 +150,9 @@ export function DataPage() {
 
   return (
     <>
-      <PageHeader title="Importar / Exportar" subtitle="Traga o extrato do banco, faça backups e leve seus dados para onde quiser" />
+      <PageHeader title="Importar / Exportar" subtitle="Conecte seus bancos, traga extratos, faça backups e leve seus dados para onde quiser" />
+
+      <OpenFinanceCard />
 
       <div className="grid xl:grid-cols-3 gap-4 mb-4">
         {/* Importar */}

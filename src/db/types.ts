@@ -12,7 +12,7 @@ export interface Account {
   color: string
   initialBalance: number
   archived?: boolean
-  /** conta no Open Finance ("pluggy:<id>") quando sincronizada pelo servidor da VPS */
+  /** conta no Open Finance ("pluggy:<id>") quando sincronizada automaticamente */
   externalId?: string
   /** última sincronização via Open Finance */
   syncedAt?: string
@@ -170,6 +170,21 @@ export interface AssetValuation {
   assetId: number
   date: string
   value: number
+}
+
+/** Banco conectado via Open Finance (um item do Pluggy / Meu Pluggy por banco) */
+export interface OpenFinanceItem {
+  id?: number
+  /** id do item no Pluggy */
+  itemId: string
+  /** nome do banco (preenchido na primeira sincronização) */
+  name?: string
+  /** UPDATED, OUTDATED, LOGIN_ERROR... */
+  status?: string
+  lastSyncedAt?: string
+  lastReport?: string
+  lastError?: string
+  createdAt?: string
 }
 
 export interface Setting {

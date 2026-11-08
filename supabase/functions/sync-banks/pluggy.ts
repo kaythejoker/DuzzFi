@@ -1,6 +1,6 @@
 // Cliente mínimo da API do Pluggy (Open Finance) — https://docs.pluggy.ai
 // Para uso pessoal: conecte os bancos no Meu Pluggy (meu.pluggy.ai), pegue o Client ID / Secret
-// da aplicação demo no dashboard.pluggy.ai e os ids dos itens conectados.
+// da aplicação demo no dashboard.pluggy.ai e o id de cada item (banco) conectado.
 
 const BASE = 'https://api.pluggy.ai'
 
@@ -15,7 +15,6 @@ export interface PluggyItem {
   status: string
   executionStatus?: string | null
   lastUpdatedAt?: string | null
-  nextAutoSyncAt?: string | null
   connector: { id: number; name: string; imageUrl?: string; type?: string }
   error?: { code?: string; message?: string } | null
 }
@@ -31,7 +30,7 @@ export interface PluggyAccount {
   number?: string | null
   balance: number
   currencyCode?: string
-  creditData?: { brand?: string | null; level?: string | null; creditLimit?: number | null; balanceDueDate?: string | null } | null
+  creditData?: { brand?: string | null; level?: string | null } | null
 }
 
 export interface PluggyTransaction {
@@ -49,24 +48,19 @@ export interface PluggyTransaction {
   status?: 'PENDING' | 'POSTED'
   category?: string | null
   merchant?: { name?: string | null } | null
-  creditCardMetadata?: { installmentNumber?: number | null; totalInstallments?: number | null; totalAmount?: number | null } | null
-  paymentData?: { paymentMethod?: string | null; reason?: string | null; receiver?: { name?: string | null } | null; payer?: { name?: string | null } | null } | null
+  creditCardMetadata?: { installmentNumber?: number | null; totalInstallments?: number | null } | null
+  paymentData?: { paymentMethod?: string | null } | null
 }
-
-type Fetch = typeof fetch
 
 export class Pluggy {
   private key?: { value: string; expiresAt: number }
   private legacyTransactions = false
 
-  constructor(
-    private cfg: PluggyConfig,
-    private fetchFn: Fetch = fetch,
-  ) {}
+  constructor(private cfg: PluggyConfig) {}
 
   private async apiKey(force = false) {
     if (!force && this.key && Date.now() < this.key.expiresAt) return this.key.value
-    const res = await this.fetchFn(`${BASE}/auth`, {
+    const res = await fetch(`${BASE}/auth`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ clientId: this.cfg.clientId, clientSecret: this.cfg.clientSecret }),
@@ -75,13 +69,12 @@ export class Pluggy {
     if (!res.ok) throw new Error(`Pluggy: login falhou (HTTP ${res.status}). Confira PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET.`)
     const body = (await res.json()) as { apiKey?: string }
     if (!body.apiKey) throw new Error('Pluggy: resposta do login sem apiKey.')
-    // a chave vale 2h; renova com folga
-    this.key = { value: body.apiKey, expiresAt: Date.now() + 90 * 60_000 }
+    this.key = { value: body.apiKey, expiresAt: Date.now() + 90 * 60_000 } // vale 2h
     return body.apiKey
   }
 
   private async get<T>(path: string, retry = true): Promise<T> {
-    const res = await this.fetchFn(`${BASE}${path}`, { headers: { 'x-api-key': await this.apiKey() }, signal: AbortSignal.timeout(60_000) })
+    const res = await fetch(`${BASE}${path}`, { headers: { 'x-api-key': await this.apiKey() }, signal: AbortSignal.timeout(60_000) })
     if (res.status === 401 && retry) {
       await this.apiKey(true)
       return this.get<T>(path, false)
@@ -110,7 +103,6 @@ export class Pluggy {
     } catch (e) {
       const status = (e as { status?: number }).status
       if (status !== 404 && status !== 403) throw e
-      // plano sem o endpoint v2: usa o antigo (paginado por número)
       this.legacyTransactions = true
       return this.transactionsLegacy(accountId, from, to)
     }
