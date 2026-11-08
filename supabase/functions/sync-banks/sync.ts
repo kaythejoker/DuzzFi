@@ -419,7 +419,8 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
           const v = typeof t.amountInAccountCurrency === 'number' && t.amountInAccountCurrency !== 0 ? t.amountInAccountCurrency : t.amount
           const d = clean(t.description ?? '')
           if (!v || localDate(t.date) > today || BOOKKEEPING_RE.test(d)) return sum
-          if (v < 0 && PAYMENT_RE.test(d)) return sum
+          // crédito no cartão só abate se for estorno; pagamento de fatura (qualquer nome) fica de fora
+          if (v < 0 && !/estorno|reembolso|devolu|cancelamento/i.test(d)) return sum
           return sum + v
         }, 0)
         const due = last ? nextMonthSameDay(last.due) : cd?.balanceDueDate ? localDate(cd.balanceDueDate) : ''
