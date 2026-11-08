@@ -53,6 +53,8 @@ const GENERIC_RE = /meu\s*pluggy/i
 const PAYMENT_RE = /\b(pagamento|pagto|pgto|payment)\b.*\b(fatura|cart[aã]o|recebid[oa])\b|\bfatura\b.*\b(pag|cart)/i
 const TRANSFER_HINT_RE = /\b(pix|ted|doc|tef|transf\w*|resgate|aplica\w*|fatura|pagamento|payment|cart[aã]o)\b/i
 const CARD_BILL_RE = /\b(fatura|cart[aã]o de cr[eé]dito|credit card)\b/i
+/** Lançamentos contábeis do cartão que vêm em pares que se anulam (atraso de fatura no Nubank): não são dinheiro */
+const BOOKKEEPING_RE = /^(saldo em atraso|cr[eé]dito de atraso|encerramento de d[ií]vida|juros de d[ií]vida encerrada)$/i
 
 export function toCandidate(t: PluggyTransaction, acc: PluggyAccount, appAccountId: number, institution: string): Candidate | null {
   const raw = typeof t.amountInAccountCurrency === 'number' && t.amountInAccountCurrency !== 0 ? t.amountInAccountCurrency : t.amount
@@ -60,6 +62,7 @@ export function toCandidate(t: PluggyTransaction, acc: PluggyAccount, appAccount
   const amount = Math.round(Math.abs(raw) * 100) / 100
   if (!amount) return null
   const desc = clean(t.description || t.merchant?.name || t.descriptionRaw || 'Sem descrição')
+  if (acc.type === 'CREDIT' && BOOKKEEPING_RE.test(desc)) return null
   const memoParts = [t.descriptionRaw && clean(t.descriptionRaw) !== desc ? clean(t.descriptionRaw) : '', t.paymentData?.paymentMethod ?? '']
   let type: 'expense' | 'income'
   let cardPayment = false
