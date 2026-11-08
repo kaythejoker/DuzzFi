@@ -203,7 +203,13 @@ function matchName<T extends { name: string }>(text: string, items: T[]): T | un
   return byWord.length === 1 ? byWord[0] : undefined
 }
 
-export function toTransaction(c: Mapped, reg: Registry, paidBills: Set<string>): NewTransaction {
+/** Pix/transferência cujo favorecido ou pagador é o próprio titular: dinheiro entre contas suas */
+export function isSelfTransfer(description: string, selfNames: string[]) {
+  const d = normalize(description)
+  return selfNames.some((n) => n.length >= 8 && d.includes(n))
+}
+
+export function toTransaction(c: Mapped, reg: Registry, paidBills: Set<string>, selfNames: string[] = []): NewTransaction {
   const text = `${c.description} ${c.memo}`
   const notes = [`${c.institution} via Open Finance`, c.installment ? `parcela ${c.installment}` : '', c.pending ? 'pendente' : '', c.memo && c.memo !== c.description ? c.memo : '']
     .filter(Boolean)
@@ -219,6 +225,12 @@ export function toTransaction(c: Mapped, reg: Registry, paidBills: Set<string>):
     importHash: HASH_PREFIX + c.pluggyId + (c.pairedId ? `+${c.pairedId}` : ''),
   }
   if (c.transferTo) return { ...base, type: 'transfer', toAccountId: c.transferTo, categoryId: null }
+  // Pix para/de você mesmo (conta não sincronizada): transferência, não receita nem despesa
+  if (c.bank === 'BANK' && isSelfTransfer(c.description, selfNames)) {
+    return c.type === 'expense'
+      ? { ...base, type: 'transfer', toAccountId: null, categoryId: null }
+      : { ...base, type: 'transfer', accountId: null, toAccountId: c.accountId, categoryId: null }
+  }
   // aplicação sai da conta para o investimento; resgate volta. Nenhum dos dois é despesa/receita.
   if (c.bank === 'BANK' && INVEST_RE.test(c.description)) {
     return c.type === 'expense'
@@ -488,7 +500,9 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
   const mapped = pairTransfers(fresh, reg.accounts)
 
   const paidBills = await db.paidBills([...new Set(mapped.map((c) => c.date.slice(0, 7)))])
-  const rows = mapped.sort((a, b) => a.date.localeCompare(b.date)).map((c) => toTransaction(c, reg, paidBills))
+  // nome do titular nas contas do banco: Pix para "Kayky ..." é movimentação entre contas suas
+  const selfNames = [...new Set(linked.map((l) => normalize(l.pluggyAcc.owner ?? '')).filter((n) => n.length >= 8))]
+  const rows = mapped.sort((a, b) => a.date.localeCompare(b.date)).map((c) => toTransaction(c, reg, paidBills, selfNames))
   let added = 0
   if (rows.length) {
     try {

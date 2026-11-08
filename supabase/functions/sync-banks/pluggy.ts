@@ -28,6 +28,8 @@ export interface PluggyAccount {
   name: string
   marketingName?: string | null
   number?: string | null
+  /** nome do titular (para reconhecer Pix entre contas suas) */
+  owner?: string | null
   balance: number
   currencyCode?: string
   creditData?: {
