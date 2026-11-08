@@ -19,27 +19,36 @@ export interface MonthSummary {
   savingsRate: number
 }
 
-export function summarizeMonth(txs: Transaction[], ym: string): MonthSummary {
-  let income = 0
-  let expense = 0
-  for (const t of txs) {
-    if (ymOf(t.date) !== ym) continue
-    if (t.type === 'income') income += t.amount
-    else if (t.type === 'expense') expense += t.amount
-  }
-  const balance = income - expense
-  return { ym, income, expense, balance, savingsRate: income > 0 ? balance / income : 0 }
+/** Ids das contas que são cartão de crédito (crédito no cartão é estorno, não receita) */
+export function cardAccountIds(accounts: Account[]) {
+  return new Set(accounts.filter((a) => a.type === 'credit_card').map((a) => a.id!))
 }
 
-export function monthlySeries(txs: Transaction[], endYM: string, count: number): MonthSummary[] {
+/** Soma um lançamento no resumo: entrada em cartão (estorno, ajuste) abate das despesas em vez de virar receita */
+function addToSummary(s: MonthSummary, t: Transaction, cards?: Set<number>) {
+  const onCard = cards != null && t.accountId != null && cards.has(t.accountId)
+  if (t.type === 'income') {
+    if (onCard) s.expense -= t.amount
+    else s.income += t.amount
+  } else if (t.type === 'expense') s.expense += t.amount
+}
+
+export function summarizeMonth(txs: Transaction[], ym: string, cards?: Set<number>): MonthSummary {
+  const s: MonthSummary = { ym, income: 0, expense: 0, balance: 0, savingsRate: 0 }
+  for (const t of txs) if (ymOf(t.date) === ym) addToSummary(s, t, cards)
+  s.balance = s.income - s.expense
+  s.savingsRate = s.income > 0 ? s.balance / s.income : 0
+  return s
+}
+
+export function monthlySeries(txs: Transaction[], endYM: string, count: number, cards?: Set<number>): MonthSummary[] {
   const months = lastMonths(endYM, count)
   const map = new Map<string, MonthSummary>()
   for (const m of months) map.set(m, { ym: m, income: 0, expense: 0, balance: 0, savingsRate: 0 })
   for (const t of txs) {
     const s = map.get(ymOf(t.date))
     if (!s) continue
-    if (t.type === 'income') s.income += t.amount
-    else if (t.type === 'expense') s.expense += t.amount
+    addToSummary(s, t, cards)
   }
   for (const s of map.values()) {
     s.balance = s.income - s.expense

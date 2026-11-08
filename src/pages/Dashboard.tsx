@@ -35,7 +35,7 @@ import {
   useTransactions,
 } from '../hooks/useData'
 import { useMonth } from '../hooks/useMonth'
-import { monthCashFlow, monthlySeries, netWorthSeries, pctChange, sumByCategory, sumByIncomeSource, summarizeMonth } from '../lib/calc'
+import { cardAccountIds, monthCashFlow, monthlySeries, netWorthSeries, pctChange, sumByCategory, sumByIncomeSource, summarizeMonth } from '../lib/calc'
 import { shiftYM, ymOf } from '../lib/dates'
 import { fmtBRL, fmtDate, fmtPct, todayISO } from '../lib/format'
 
@@ -55,10 +55,11 @@ export function DashboardPage() {
   const srcById = useById(sources)
   const [formOpen, setFormOpen] = useState(false)
 
-  const summary = useMemo(() => summarizeMonth(txs, ym), [txs, ym])
+  const cards = useMemo(() => cardAccountIds(accounts), [accounts])
+  const summary = useMemo(() => summarizeMonth(txs, ym, cards), [txs, ym, cards])
   const cashFlow = useMemo(() => monthCashFlow(accounts, txs, ym), [accounts, txs, ym])
-  const prev = useMemo(() => summarizeMonth(txs, shiftYM(ym, -1)), [txs, ym])
-  const series = useMemo(() => monthlySeries(txs, ym, 12), [txs, ym])
+  const prev = useMemo(() => summarizeMonth(txs, shiftYM(ym, -1), cards), [txs, ym, cards])
+  const series = useMemo(() => monthlySeries(txs, ym, 12, cards), [txs, ym, cards])
 
   const byCat = useMemo(() => {
     const m = sumByCategory(txs, ym, 'expense')

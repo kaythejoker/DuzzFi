@@ -28,7 +28,7 @@ import {
   useTransactions,
 } from '../hooks/useData'
 import { INCOME_TYPE_LABEL, type IncomeSourceType } from '../db/types'
-import { incomeByTypeSeries, monthlySeries, netWorthSeries, pctChange } from '../lib/calc'
+import { cardAccountIds, incomeByTypeSeries, monthlySeries, netWorthSeries, pctChange } from '../lib/calc'
 import { lastMonths, ymOf } from '../lib/dates'
 import { currentYM, fmtBRL, fmtMonthLong, fmtPct } from '../lib/format'
 
@@ -55,7 +55,8 @@ export function GrowthPage() {
     () => netWorthSeries({ accounts, txs, investments, movements, snapshots, assets, valuations }, ym, count),
     [accounts, txs, investments, movements, snapshots, assets, valuations, ym, count],
   )
-  const flow = useMemo(() => monthlySeries(txs, ym, count), [txs, ym, count])
+  const cards = useMemo(() => cardAccountIds(accounts), [accounts])
+  const flow = useMemo(() => monthlySeries(txs, ym, count, cards), [txs, ym, count, cards])
   const incomeByType = useMemo(() => incomeByTypeSeries(txs, sources, ym, count), [txs, sources, ym, count])
   const types = useMemo(() => {
     const s = new Set<string>()
@@ -84,7 +85,7 @@ export function GrowthPage() {
   const last = nw[nw.length - 1]
   const nwGrowth = pctChange(last?.netWorth ?? 0, first?.netWorth ?? 0)
   const last12 = flow.slice(-12)
-  const prev12 = useMemo(() => monthlySeries(txs, lastMonths(ym, 13)[0], 12), [txs, ym])
+  const prev12 = useMemo(() => monthlySeries(txs, lastMonths(ym, 13)[0], 12, cards), [txs, ym, cards])
   const income12 = last12.reduce((s, f) => s + f.income, 0)
   const incomePrev12 = prev12.reduce((s, f) => s + f.income, 0)
   const saved12 = last12.reduce((s, f) => s + f.balance, 0)
