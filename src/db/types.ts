@@ -104,6 +104,8 @@ export interface IncomeSource {
   active: boolean
   /** categoria de receita padrão ao lançar um recebimento */
   defaultCategoryId?: number
+  /** trechos da descrição do banco que identificam esta fonte (ex.: nome da empresa que paga) */
+  keywords?: string[]
 }
 
 export type InvestmentType =

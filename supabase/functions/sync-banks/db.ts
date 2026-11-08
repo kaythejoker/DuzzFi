@@ -28,6 +28,8 @@ export interface IncomeSource {
   name: string
   active: boolean
   defaultCategoryId: number | null
+  /** trechos da descrição do banco que identificam a fonte (ex.: nome da empresa) */
+  keywords: string[]
 }
 
 export interface RecurringExpense {
@@ -116,7 +118,7 @@ export class Db {
     const [accounts, categories, incomeSources, recurringExpenses] = await Promise.all([
       this.q<Row[]>((sb) => sb.from('accounts').select(ACCOUNT_COLUMNS).eq('user_id', u).order('id')),
       this.q<Row[]>((sb) => sb.from('categories').select('id, name, type, keywords, archived').eq('user_id', u).order('id')),
-      this.q<Row[]>((sb) => sb.from('income_sources').select('id, name, active, default_category_id').eq('user_id', u).order('id')),
+      this.q<Row[]>((sb) => sb.from('income_sources').select('id, name, active, default_category_id, keywords').eq('user_id', u).order('id')),
       this.q<Row[]>((sb) => sb.from('recurring_expenses').select('id, name, amount, category_id, active, start_date, end_date').eq('user_id', u).order('id')),
     ])
     return {
@@ -128,7 +130,13 @@ export class Db {
         keywords: (r.keywords as string[] | null) ?? [],
         archived: Boolean(r.archived),
       })),
-      incomeSources: incomeSources.map((r) => ({ id: Number(r.id), name: String(r.name), active: Boolean(r.active), defaultCategoryId: num(r.default_category_id) })),
+      incomeSources: incomeSources.map((r) => ({
+        id: Number(r.id),
+        name: String(r.name),
+        active: Boolean(r.active),
+        defaultCategoryId: num(r.default_category_id),
+        keywords: (r.keywords as string[] | null) ?? [],
+      })),
       recurringExpenses: recurringExpenses.map((r) => ({
         id: Number(r.id),
         name: String(r.name),

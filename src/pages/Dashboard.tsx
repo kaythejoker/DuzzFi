@@ -35,7 +35,7 @@ import {
   useTransactions,
 } from '../hooks/useData'
 import { useMonth } from '../hooks/useMonth'
-import { cardAccountIds, monthCashFlow, monthlySeries, netWorthSeries, pctChange, sumByCategory, sumByIncomeSource, summarizeMonth } from '../lib/calc'
+import { cardAccountIds, monthCashFlow, monthlySeries, netWorthSeries, pctChange, sumByCategory, sumByIncomeSource, summarizeMonth, withoutCardCredits } from '../lib/calc'
 import { shiftYM, ymOf } from '../lib/dates'
 import { fmtBRL, fmtDate, fmtPct, todayISO } from '../lib/format'
 
@@ -75,7 +75,7 @@ export function DashboardPage() {
   }, [txs, ym, catById])
 
   const bySource = useMemo(() => {
-    const m = sumByIncomeSource(txs, ym)
+    const m = sumByIncomeSource(withoutCardCredits(txs, accounts), ym)
     return [...m.entries()]
       .map(([id, value]) => ({
         id,

@@ -8,11 +8,11 @@ import { ScheduleGrid } from '../components/Schedule'
 import { incomeItems, upcomingPayments } from '../lib/payday'
 import { Badge, Card, ColorPicker, Confirm, Dot, EmptyState, Field, Kpi, Modal, MoneyInput, ProgressBar } from '../components/ui'
 import { axisStyle, gridStroke, moneyTick, monthTick, tooltipLabelMonth, tooltipMoney, tooltipStyle } from '../components/charts'
-import { useCategories, useIncomeSources, useTransactions } from '../hooks/useData'
+import { useAccounts, useCategories, useIncomeSources, useTransactions } from '../hooks/useData'
 import { useMonth } from '../hooks/useMonth'
 import { repo } from '../data/store'
 import { INCOME_TYPE_LABEL, PALETTE, type IncomeSource, type IncomeSourceType, type Transaction } from '../db/types'
-import { incomeByTypeSeries, sumByIncomeSource } from '../lib/calc'
+import { incomeByTypeSeries, sumByIncomeSource, withoutCardCredits } from '../lib/calc'
 import { dayInYM, lastMonths, ymOf } from '../lib/dates'
 import { fmtBRL, fmtPct, todayISO } from '../lib/format'
 
@@ -40,7 +40,10 @@ const emptySource = (): IncomeSource => ({
 export function IncomePage() {
   const [ym, setYm] = useMonth()
   const sources = useIncomeSources()
-  const txs = useTransactions()
+  const allTxs = useTransactions()
+  const accounts = useAccounts()
+  // crédito em cartão (estorno, ajuste) não é renda
+  const txs = useMemo(() => withoutCardCredits(allTxs, accounts), [allTxs, accounts])
   const categories = useCategories()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<IncomeSource | null>(null)
@@ -257,12 +260,14 @@ export function IncomePage() {
 
 function SourceModal({ open, onClose, editing, categories }: { open: boolean; onClose: () => void; editing: IncomeSource | null; categories: { id?: number; name: string }[] }) {
   const [form, setForm] = useState<IncomeSource>(editing ?? emptySource())
+  const [kw, setKw] = useState((editing?.keywords ?? []).join(', '))
   const [err, setErr] = useState('')
   const [lastOpen, setLastOpen] = useState(false)
   if (open !== lastOpen) {
     setLastOpen(open)
     if (open) {
       setForm(editing ?? emptySource())
+      setKw((editing?.keywords ?? []).join(', '))
       setErr('')
     }
   }
@@ -270,7 +275,7 @@ function SourceModal({ open, onClose, editing, categories }: { open: boolean; on
 
   async function save() {
     if (!form.name.trim()) return setErr('Dê um nome à fonte (ex.: Salário Empresa X).')
-    const payload = { ...form, name: form.name.trim() }
+    const payload = { ...form, name: form.name.trim(), keywords: kw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) }
     if (editing?.id) await repo.incomeSources.put({ ...payload, id: editing.id })
     else await repo.incomeSources.add(payload)
     onClose()
@@ -286,6 +291,9 @@ function SourceModal({ open, onClose, editing, categories }: { open: boolean; on
       <div className="space-y-4">
         <Field label="Nome">
           <input className="input" autoFocus placeholder="Ex.: Salário Acme, Sociedade Duzz, Freelas" value={form.name} onChange={(e) => set('name', e.target.value)} />
+        </Field>
+        <Field label="Como aparece no extrato" hint="Trechos do nome que o banco mostra, separados por vírgula. O Open Finance e a importação ligam o recebimento a esta fonte, seja qual for o valor.">
+          <input className="input" value={kw} onChange={(e) => setKw(e.target.value)} placeholder="Ex.: ia sem limites, nome da empresa" />
         </Field>
         <Field label="Tipo">
           <select className="input" value={form.type} onChange={(e) => set('type', e.target.value as IncomeSourceType)}>

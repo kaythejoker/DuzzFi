@@ -176,6 +176,18 @@ export function suggestCategory(text: string, type: 'expense' | 'income', cats: 
 
 const GENERIC = new Set(['plano', 'conta', 'pagamento', 'mensal', 'mensalidade', 'sociedade', 'empresa', 'servico', 'servicos', 'solutions', 'banco'])
 
+/** Cadastro cuja palavra-chave mais longa aparece na descrição */
+function matchKeywords<T extends { keywords: string[] }>(text: string, items: T[]): T | undefined {
+  const n = normalize(text)
+  let best: { item: T; len: number } | undefined
+  for (const it of items)
+    for (const kw of it.keywords) {
+      const len = normalize(kw).length
+      if (len && keywordMatches(n, kw) && (!best || len > best.len)) best = { item: it, len }
+    }
+  return best?.item
+}
+
 /** Nome do cadastro (ou uma palavra marcante dele) aparece na descrição */
 function matchName<T extends { name: string }>(text: string, items: T[]): T | undefined {
   const n = normalize(text)
@@ -207,7 +219,9 @@ export function toTransaction(c: Mapped, reg: Registry, paidBills: Set<string>):
   if (c.transferTo) return { ...base, type: 'transfer', toAccountId: c.transferTo, categoryId: null }
 
   if (c.type === 'income') {
-    const source = matchName(text, reg.incomeSources.filter((s) => s.active))
+    const sources = reg.incomeSources.filter((s) => s.active)
+    // primeiro pelas palavras-chave da fonte (nome da empresa que paga), depois pelo nome da fonte
+    const source = matchKeywords(text, sources) ?? matchName(text, sources)
     return {
       ...base,
       type: 'income',

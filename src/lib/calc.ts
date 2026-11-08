@@ -19,6 +19,13 @@ export interface MonthSummary {
   savingsRate: number
 }
 
+/** Lançamentos sem as entradas em cartão de crédito (estorno/ajuste não é dinheiro recebido) */
+export function withoutCardCredits(txs: Transaction[], accounts: Account[]) {
+  const cards = cardAccountIds(accounts)
+  if (cards.size === 0) return txs
+  return txs.filter((t) => !(t.type === 'income' && t.accountId != null && cards.has(t.accountId)))
+}
+
 /** Ids das contas que são cartão de crédito (crédito no cartão é estorno, não receita) */
 export function cardAccountIds(accounts: Account[]) {
   return new Set(accounts.filter((a) => a.type === 'credit_card').map((a) => a.id!))

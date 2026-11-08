@@ -28,7 +28,7 @@ import {
   useTransactions,
 } from '../hooks/useData'
 import { INCOME_TYPE_LABEL, type IncomeSourceType } from '../db/types'
-import { cardAccountIds, incomeByTypeSeries, monthlySeries, netWorthSeries, pctChange } from '../lib/calc'
+import { cardAccountIds, incomeByTypeSeries, monthlySeries, netWorthSeries, pctChange, withoutCardCredits } from '../lib/calc'
 import { lastMonths, ymOf } from '../lib/dates'
 import { currentYM, fmtBRL, fmtMonthLong, fmtPct } from '../lib/format'
 
@@ -57,7 +57,8 @@ export function GrowthPage() {
   )
   const cards = useMemo(() => cardAccountIds(accounts), [accounts])
   const flow = useMemo(() => monthlySeries(txs, ym, count, cards), [txs, ym, count, cards])
-  const incomeByType = useMemo(() => incomeByTypeSeries(txs, sources, ym, count), [txs, sources, ym, count])
+  const incomeTxs = useMemo(() => withoutCardCredits(txs, accounts), [txs, accounts])
+  const incomeByType = useMemo(() => incomeByTypeSeries(incomeTxs, sources, ym, count), [incomeTxs, sources, ym, count])
   const types = useMemo(() => {
     const s = new Set<string>()
     for (const r of incomeByType) for (const k of Object.keys(r)) if (k !== 'ym') s.add(k)
@@ -99,8 +100,11 @@ export function GrowthPage() {
       const y = t.date.slice(0, 4)
       if (!years.has(y)) years.set(y, { year: y, income: 0, expense: 0, saved: 0, aporte: 0, nwEnd: 0 })
       const r = years.get(y)!
-      if (t.type === 'income') r.income += t.amount
-      else if (t.type === 'expense') r.expense += t.amount
+      const onCard = t.accountId != null && cards.has(t.accountId)
+      if (t.type === 'income') {
+        if (onCard) r.expense -= t.amount
+        else r.income += t.amount
+      } else if (t.type === 'expense') r.expense += t.amount
     }
     for (const m of movements) {
       if (m.type !== 'aporte') continue
