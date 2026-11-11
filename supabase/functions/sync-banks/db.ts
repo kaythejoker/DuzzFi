@@ -265,8 +265,9 @@ export class Db {
     return { id: Number(row.id), name: String(row.name), type: String(row.type), externalId: (row.external_id as string | null) ?? null, archived: Boolean(row.archived) }
   }
 
-  async updateInvestment(id: number, patch: { archived?: boolean; syncedAt?: string | null; institution?: string | null }) {
+  async updateInvestment(id: number, patch: { archived?: boolean; syncedAt?: string | null; institution?: string | null; externalId?: string | null }) {
     const row: Row = {}
+    if (patch.externalId !== undefined) row.external_id = patch.externalId
     if (patch.archived !== undefined) row.archived = patch.archived
     if (patch.syncedAt !== undefined) row.synced_at = patch.syncedAt
     if (patch.institution !== undefined) row.institution = patch.institution

@@ -321,16 +321,28 @@ function investmentBalance(inv: PluggyInvestment) {
 
 const INVEST_TOKENS = ['rdb', 'cdb', 'porquinho', 'caixinha', 'lci', 'lca', 'poupanca', 'tesouro', 'fundo', 'cri', 'cra', 'debenture']
 
+/** Investimento do app ligado a um produto do banco (todas as posições do mesmo produto somadas) */
+export interface InvTarget {
+  id: number
+  name: string
+  /** nome do app + nomes das posições no banco, normalizados, para reconhecer a aplicação na conta */
+  match: string
+  balance: number
+}
+
+/** Chave do produto: item do banco + nome legível ("CDB · Inter"). Cada aplicação no Porquinho vira uma posição nova no banco. */
+export const investmentKey = (itemId: string, label: string) => `${HASH_PREFIX}${itemId}:${normalize(label)}`
+
+/** Saídas com "resgate" no nome que não são de investimento (cashback, pontos, conta global) */
+const NOT_INVEST_RE = /global account|pontos|cashback/i
+
 /** Qual investimento do banco uma aplicação/resgate da conta se refere (pelo nome do produto na descrição) */
-export function matchInvestment(description: string, candidates: { id: number; name: string; pluggy: PluggyInvestment }[]) {
-  if (candidates.length === 0) return undefined
+export function matchInvestment(description: string, candidates: InvTarget[]) {
+  if (candidates.length === 0 || NOT_INVEST_RE.test(description)) return undefined
   if (candidates.length === 1) return candidates[0]
   const d = normalize(description)
   const tokens = INVEST_TOKENS.filter((t) => d.includes(t))
-  const hits = candidates.filter((c) => {
-    const text = normalize(`${c.name} ${c.pluggy.name ?? ''} ${c.pluggy.subtype ?? ''}`)
-    return tokens.some((t) => text.includes(t))
-  })
+  const hits = candidates.filter((c) => tokens.some((t) => c.match.includes(t)))
   return hits.length === 1 ? hits[0] : undefined
 }
 
@@ -443,7 +455,8 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
   }
 
   // ---------- investimentos de cada banco: um investimento no app por produto, saldo do dia como snapshot ----------
-  const invByItem = new Map<number, { id: number; name: string; pluggy: PluggyInvestment }[]>()
+  // As várias posições do mesmo produto (cada aplicação no CDB Porquinho, cada caixinha) somam no mesmo investimento.
+  const invByItem = new Map<number, InvTarget[]>()
   // valor que o banco informa hoje para cada investimento (zerado = 0), para conferir com aportes - resgates
   const bankValues: { id: number; name: string; type: string; value: number }[] = []
   let appInvestments: Investment[] = []
@@ -460,38 +473,64 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
     } catch {
       list = []
     }
-    const mine: { id: number; name: string; pluggy: PluggyInvestment }[] = []
-    let created = 0
+    const groups = new Map<string, { label: string; type: string; code: string | null; positions: PluggyInvestment[]; balance: number }>()
     for (const pi of list) {
-      const balance = investmentBalance(pi)
-      const active = (pi.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE' && balance !== null && balance > 0
-      const externalId = HASH_PREFIX + pi.id
-      let app = appInvestments.find((i) => i.externalId === externalId)
+      const label = investmentLabel(pi, institution)
+      const key = investmentKey(row.itemId, label)
+      const g = groups.get(key) ?? { label, type: appInvestmentType(pi), code: pi.code ?? null, positions: [], balance: 0 }
+      g.positions.push(pi)
+      const b = investmentBalance(pi)
+      if ((pi.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE' && b !== null && b > 0) g.balance += b
+      groups.set(key, g)
+    }
+    const mine: InvTarget[] = []
+    let created = 0
+    for (const [key, g] of groups) {
+      const balance = Math.round(g.balance * 100) / 100
+      const active = balance > 0
+      // investimento criado antes do agrupamento tem o id de uma posição: é adotado e passa a usar a chave do produto
+      let app =
+        appInvestments.find((i) => i.externalId === key) ?? appInvestments.find((i) => g.positions.some((p) => i.externalId === HASH_PREFIX + p.id))
       try {
         if (!app && !active) continue // produto zerado/encerrado que nunca entrou: ignora
         if (!app) {
-          app = await db.createInvestment({ name: investmentLabel(pi, institution), type: appInvestmentType(pi), institution, ticker: pi.code ?? null, externalId })
+          app = await db.createInvestment({ name: g.label, type: g.type, institution, ticker: g.code, externalId: key })
           appInvestments.push(app)
           created++
+        } else if (app.externalId !== key) {
+          await db.updateInvestment(app.id, { externalId: key })
+          const adopted: Investment = { ...app, externalId: key }
+          appInvestments = appInvestments.map((i) => (i.id === adopted.id ? adopted : i))
+          app = adopted
         }
+        const match = normalize([app.name, ...g.positions.map((p) => `${p.name ?? ''} ${p.subtype ?? ''}`)].join(' '))
         if (active) {
-          await db.upsertSnapshot(app.id, today, balance!)
+          await db.upsertSnapshot(app.id, today, balance)
           await db.updateInvestment(app.id, { syncedAt: now0, ...(app.archived ? { archived: false } : {}) })
-          mine.push({ id: app.id, name: app.name, pluggy: pi })
-          bankValues.push({ id: app.id, name: app.name, type: app.type, value: balance! })
+          mine.push({ id: app.id, name: app.name, match, balance })
+          bankValues.push({ id: app.id, name: app.name, type: app.type, value: balance })
         } else if (!app.archived) {
+          // O banco mostra zero, mas no app ainda há dinheiro aplicado (aportes - resgates): o banco costuma levar
+          // um dia ou mais para informar a posição nova. Mantém o último valor em vez de zerar.
+          const moves = await db.movementsOf(app.id)
+          const net = moves.reduce((s, m) => s + (m.type === 'aporte' ? m.amount : -m.amount), 0)
+          if (net > 1) {
+            mine.push({ id: app.id, name: app.name, match, balance: 0 })
+            lines.push(`${app.name}: o banco ainda não informou o valor; mantive o último.`)
+            continue
+          }
           // zerou no banco: registra o zero e arquiva
           await db.upsertSnapshot(app.id, today, 0)
           await db.updateInvestment(app.id, { archived: true, syncedAt: now0 })
           bankValues.push({ id: app.id, name: app.name, type: app.type, value: 0 })
         }
       } catch (e) {
-        fail(row, `${institution} (${pi.name}): ${msg(e)}`)
+        fail(row, `${institution} (${g.label}): ${msg(e)}`)
       }
     }
     invByItem.set(row.id, mine)
     if (mine.length || created) {
-      const total = mine.reduce((s, m) => s + (investmentBalance(m.pluggy) ?? 0), 0)
+      const total = mine.reduce((s, m) => s + m.balance, 0)
       lines.push(`${institution}: ${mine.length} investimento${mine.length === 1 ? '' : 's'} (${brl(total)})${created ? ` · ${created} novo${created > 1 ? 's' : ''}` : ''}`)
     }
   }
@@ -537,21 +576,38 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
     }
   }
 
-  // aplicação/resgate que acabou de entrar vira aporte/resgate no investimento correspondente
-  if (added) {
+  // aplicação/resgate na conta vira aporte/resgate no investimento do mesmo banco. Confere todo o período buscado,
+  // não só o que entrou agora: o banco às vezes só mostra o investimento novo no dia seguinte à aplicação.
+  {
     const itemOfAccount = new Map(linked.map((l) => [l.app.id, l.row.id]))
+    const inApp = new Set(seen)
+    if (added) for (const c of mapped) inApp.add(c.pluggyId)
+    // investimento -> "data|tipo|valor" -> quantos movimentos iguais já existem
+    const existing = new Map<number, Map<string, number>>()
     const movements: { investmentId: number; date: string; type: 'aporte' | 'resgate'; amount: number; notes: string }[] = []
-    rows.forEach((r, i) => {
-      const c = mapped[i]
-      if (!c || c.bank !== 'BANK' || r.type !== 'transfer' || !INVEST_RE.test(c.description)) return
-      const isAporte = r.accountId != null && r.toAccountId == null
-      const isResgate = r.accountId == null && r.toAccountId != null
-      if (!isAporte && !isResgate) return
+    for (const c of [...cands].sort((a, b) => a.date.localeCompare(b.date))) {
+      if (c.bank !== 'BANK' || c.cardPayment || !inApp.has(c.pluggyId) || !INVEST_RE.test(c.description)) continue
       const itemId = itemOfAccount.get(c.accountId)
       const inv = itemId != null ? matchInvestment(c.description, invByItem.get(itemId) ?? []) : undefined
-      if (!inv) return
-      movements.push({ investmentId: inv.id, date: c.date, type: isAporte ? 'aporte' : 'resgate', amount: c.amount, notes: `${c.description} (Open Finance)` })
-    })
+      if (!inv) continue
+      let have = existing.get(inv.id)
+      if (!have) {
+        have = new Map()
+        for (const m of await db.movementsOf(inv.id)) {
+          const k = `${m.date}|${m.type}|${m.amount.toFixed(2)}`
+          have.set(k, (have.get(k) ?? 0) + 1)
+        }
+        existing.set(inv.id, have)
+      }
+      const type = c.type === 'expense' ? 'aporte' : 'resgate'
+      const k = `${c.date}|${type}|${c.amount.toFixed(2)}`
+      const n = have.get(k) ?? 0
+      if (n > 0) {
+        have.set(k, n - 1)
+        continue
+      }
+      movements.push({ investmentId: inv.id, date: c.date, type, amount: c.amount, notes: `${c.description} (Open Finance)` })
+    }
     if (movements.length) {
       try {
         const n = await db.insertMovements(movements)
