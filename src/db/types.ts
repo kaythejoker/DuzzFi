@@ -149,6 +149,21 @@ export interface InvestmentMovement {
   notes?: string
 }
 
+/** Posição de renda variável dentro de um investimento: ticker + quantidade. A cotação é buscada automaticamente. */
+export interface InvestmentHolding {
+  id?: number
+  investmentId: number
+  /** código na B3 (ITSA4, LVBI11) */
+  ticker: string
+  quantity: number
+  /** última cotação encontrada */
+  lastPrice?: number
+  /** data do pregão da última cotação */
+  pricedAt?: string
+  /** erro da última busca de cotação (vazio quando deu certo) */
+  quoteError?: string
+}
+
 /** Valor de mercado do investimento em uma data (geralmente fim do mês) */
 export interface InvestmentSnapshot {
   id?: number

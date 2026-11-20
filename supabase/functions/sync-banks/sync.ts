@@ -5,7 +5,7 @@
 // "pluggy:<id>", categorizados pelas palavras-chave do app. Pares saída/entrada entre contas suas
 // viram transferência; pagamento de fatura vira transferência da conta para o cartão.
 
-import type { Account, Category, Db, Investment, NewTransaction, OpenFinanceItem, Registry } from './db.ts'
+import type { Account, Category, Db, Holding, Investment, NewTransaction, OpenFinanceItem, Registry } from './db.ts'
 import type { Pluggy, PluggyAccount, PluggyInvestment, PluggyItem, PluggyTransaction } from './pluggy.ts'
 import { addDays, brl, keywordMatches, normalize, todayISO, wholeWord } from './text.ts'
 
@@ -333,6 +333,74 @@ export interface InvTarget {
 /** Chave do produto: item do banco + nome legível ("CDB · Inter"). Cada aplicação no Porquinho vira uma posição nova no banco. */
 export const investmentKey = (itemId: string, label: string) => `${HASH_PREFIX}${itemId}:${normalize(label)}`
 
+// ---------- renda variável: ações, FIIs e ETFs do banco viram posições (ticker + quantidade) ----------
+// O banco costuma informar só o ticker (saldo zero, sem quantidade). O valor de mercado vem da Edge Function
+// update-quotes (quantidade × cotação), por isso aqui não se grava snapshot nem se cria um investimento por papel.
+
+export const equityLabel = (institution: string) => `Renda variável · ${institution}`
+
+/** Posição do banco que é um papel negociado em bolsa (tem ticker) */
+export function isVariableIncome(pi: PluggyInvestment) {
+  if (!pi.code?.trim()) return false
+  const t = appInvestmentType(pi)
+  return t === 'acoes' || t === 'fiis'
+}
+
+/**
+ * Liga os papéis que o banco informa a um investimento de renda variável do app (um por banco), criando as
+ * posições que ainda não existem. Quantidade já informada pelo usuário nunca é sobrescrita (a corretora leva
+ * D+2 para refletir uma compra); quantidade zerada é preenchida quando o banco informa.
+ */
+export async function syncEquities(db: Db, itemId: string, institution: string, positions: PluggyInvestment[], appInvestments: Investment[], holdings: Holding[]) {
+  const label = equityLabel(institution)
+  const key = investmentKey(itemId, label)
+  const byCode = new Map<string, PluggyInvestment[]>()
+  for (const p of positions) {
+    const code = p.code!.trim().toUpperCase()
+    byCode.set(code, [...(byCode.get(code) ?? []), p])
+  }
+  const codes = [...byCode.keys()].sort()
+  const known = new Map(holdings.map((h) => [h.ticker, h]))
+  const fresh = codes.filter((c) => !known.has(c))
+  let line = `${institution}: renda variável no banco: ${codes.join(', ')}`
+
+  // investimento do app: o já ligado a este banco, senão um de ações/FIIs dessa instituição criado à mão
+  let app =
+    appInvestments.find((i) => i.externalId === key) ??
+    appInvestments.find((i) => !i.archived && !i.externalId && (i.type === 'acoes' || i.type === 'fiis') && !!i.institution && normalize(i.institution) === normalize(institution))
+  if (!app) {
+    if (!fresh.length) return { appInvestments, holdings, line } // todos os papéis já estão em algum investimento
+    app = await db.createInvestment({ name: label, type: 'acoes', institution, ticker: codes.join(', '), externalId: key })
+    appInvestments = [...appInvestments, app]
+    line += ` · investimento “${label}” criado`
+  } else if (app.externalId !== key) {
+    await db.updateInvestment(app.id, { externalId: key })
+    app = { ...app, externalId: key }
+    appInvestments = appInvestments.map((i) => (i.id === app!.id ? app! : i))
+  }
+
+  const added: string[] = []
+  const askQty: string[] = []
+  for (const code of codes) {
+    const qty = byCode.get(code)!.reduce((s, p) => s + (typeof p.quantity === 'number' && p.quantity > 0 ? p.quantity : 0), 0)
+    const existing = known.get(code)
+    if (existing && existing.investmentId !== app.id) continue // o usuário mantém esse papel em outro investimento
+    if (!existing) {
+      const h = await db.upsertHolding(app.id, code, qty)
+      holdings = [...holdings, h]
+      added.push(code)
+      if (!qty) askQty.push(code)
+    } else if (existing.quantity === 0 && qty > 0) {
+      const h = await db.upsertHolding(app.id, code, qty)
+      holdings = holdings.map((x) => (x.id === h.id ? h : x))
+    }
+  }
+  await db.updateInvestment(app.id, { syncedAt: new Date().toISOString(), ...(app.archived ? { archived: false } : {}) })
+  if (added.length) line += ` · ${added.length === 1 ? 'posição nova' : 'posições novas'}: ${added.join(', ')}`
+  if (askQty.length) line += ` · o banco não informou a quantidade de ${askQty.join(', ')}: preencha em Investimentos → Posições`
+  return { appInvestments, holdings, line }
+}
+
 /** Saídas com "resgate" no nome que não são de investimento (cashback, pontos, conta global) */
 const NOT_INVEST_RE = /global account|pontos|cashback/i
 
@@ -460,8 +528,10 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
   // valor que o banco informa hoje para cada investimento (zerado = 0), para conferir com aportes - resgates
   const bankValues: { id: number; name: string; type: string; value: number }[] = []
   let appInvestments: Investment[] = []
+  let holdings: Holding[] = []
   try {
     appInvestments = await db.investments()
+    holdings = await db.holdings()
   } catch (e) {
     errors.push(`Lendo investimentos: ${msg(e)}`)
   }
@@ -474,7 +544,12 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
       list = []
     }
     const groups = new Map<string, { label: string; type: string; code: string | null; positions: PluggyInvestment[]; balance: number }>()
+    const equities: PluggyInvestment[] = []
     for (const pi of list) {
+      if (isVariableIncome(pi)) {
+        equities.push(pi)
+        continue
+      }
       const label = investmentLabel(pi, institution)
       const key = investmentKey(row.itemId, label)
       const g = groups.get(key) ?? { label, type: appInvestmentType(pi), code: pi.code ?? null, positions: [], balance: 0 }
@@ -526,6 +601,20 @@ export async function syncBanks(db: Db, pluggy: Pluggy, items: OpenFinanceItem[]
         }
       } catch (e) {
         fail(row, `${institution} (${g.label}): ${msg(e)}`)
+      }
+    }
+    if (equities.length) {
+      // o que o banco manda de renda variável (para diagnóstico: cada banco informa campos diferentes)
+      console.log(
+        `[sync] ${institution}: renda variável ${JSON.stringify(equities.map((p) => ({ code: p.code, name: p.name, type: p.type, subtype: p.subtype, quantity: p.quantity, balance: p.balance, amount: p.amount, value: p.value, status: p.status })))}`,
+      )
+      try {
+        const r = await syncEquities(db, row.itemId, institution, equities, appInvestments, holdings)
+        appInvestments = r.appInvestments
+        holdings = r.holdings
+        lines.push(r.line)
+      } catch (e) {
+        fail(row, `${institution} (renda variável): ${msg(e)}`)
       }
     }
     invByItem.set(row.id, mine)

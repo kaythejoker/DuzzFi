@@ -1,16 +1,18 @@
 import { useMemo, useState } from 'react'
-import { ArrowDownToLine, ArrowUpFromLine, Coins, Pencil, Percent, Plus, RefreshCw, Trash2, TrendingUp } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpFromLine, Coins, Layers, Pencil, Percent, Plus, RefreshCw, Trash2, TrendingUp } from 'lucide-react'
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { PageHeader } from '../components/Shell'
 import { Badge, Card, ColorPicker, Confirm, Dot, EmptyState, Field, Kpi, Modal, MoneyInput, Segmented } from '../components/ui'
 import { axisStyle, gridStroke, moneyTick, monthTick, tooltipLabelMonth, tooltipMoney, tooltipStyle } from '../components/charts'
-import { useAccounts, useById, useInvestmentMovements, useInvestmentSnapshots, useInvestments } from '../hooks/useData'
+import { useAccounts, useById, useInvestmentHoldings, useInvestmentMovements, useInvestmentSnapshots, useInvestments } from '../hooks/useData'
 import { repo } from '../data/store'
+import { updateQuotesNow, type QuoteResult } from '../data/quotes'
 import {
   INVESTMENT_TYPE_LABEL,
   MOVEMENT_LABEL,
   PALETTE,
   type Investment,
+  type InvestmentHolding,
   type InvestmentMovement,
   type InvestmentMovementType,
   type InvestmentType,
@@ -30,6 +32,7 @@ export function InvestmentsPage() {
   const investments = useInvestments()
   const movements = useInvestmentMovements()
   const snapshots = useInvestmentSnapshots()
+  const holdings = useInvestmentHoldings()
   const accounts = useAccounts()
   const invById = useById(investments)
 
@@ -38,7 +41,11 @@ export function InvestmentsPage() {
   const [toDelete, setToDelete] = useState<Investment | null>(null)
   const [movFor, setMovFor] = useState<{ inv: Investment; type: InvestmentMovementType } | null>(null)
   const [snapFor, setSnapFor] = useState<Investment | null>(null)
+  const [holdFor, setHoldFor] = useState<Investment | null>(null)
   const [movDelete, setMovDelete] = useState<InvestmentMovement | null>(null)
+  const [quoting, setQuoting] = useState(false)
+  const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null)
+  const [quoteError, setQuoteError] = useState('')
 
   const rows = useMemo(
     () =>
@@ -50,11 +57,25 @@ export function InvestmentsPage() {
           const income = investmentIncome(i, movements)
           const result = value - invested + income
           const lastSnap = snapshots.filter((s) => s.investmentId === i.id).sort((a, b) => (a.date < b.date ? 1 : -1))[0]
-          return { inv: i, invested, value, income, result, resultPct: invested > 0 ? result / invested : null, lastSnap }
+          const holds = holdings.filter((h) => h.investmentId === i.id).sort((a, b) => a.ticker.localeCompare(b.ticker))
+          return { inv: i, invested, value, income, result, resultPct: invested > 0 ? result / invested : null, lastSnap, holds }
         })
         .sort((a, b) => b.value - a.value),
-    [investments, movements, snapshots],
+    [investments, movements, snapshots, holdings],
   )
+
+  async function refreshQuotes() {
+    setQuoteError('')
+    setQuoteResult(null)
+    setQuoting(true)
+    try {
+      setQuoteResult(await updateQuotesNow())
+    } catch (e) {
+      setQuoteError((e as Error).message)
+    } finally {
+      setQuoting(false)
+    }
+  }
 
   const totals = useMemo(() => {
     const t = { invested: 0, value: 0, income: 0 }
@@ -111,11 +132,27 @@ export function InvestmentsPage() {
         title="Investimentos"
         subtitle="Carteira, aportes, proventos e evolução"
         actions={
-          <button className="btn-primary" onClick={() => { setEditing(null); setOpen(true) }}>
-            <Plus size={16} /> Investimento
-          </button>
+          <>
+            {holdings.length > 0 && (
+              <button className="btn-secondary" disabled={quoting} onClick={refreshQuotes} title="Busca a cotação de cada posição e atualiza o valor de mercado. Roda sozinho todo dia útil às 18h30.">
+                <RefreshCw size={16} className={quoting ? 'animate-spin' : ''} /> {quoting ? 'Cotando…' : 'Atualizar cotações'}
+              </button>
+            )}
+            <button className="btn-primary" onClick={() => { setEditing(null); setOpen(true) }}>
+              <Plus size={16} /> Investimento
+            </button>
+          </>
         }
       />
+
+      {(quoteResult || quoteError) && (
+        <div className={`rounded-xl border p-3 mb-4 text-sm whitespace-pre-line ${quoteError || (quoteResult && !quoteResult.ok) ? 'border-expense/40 bg-expense/5' : 'border-income/40 bg-income/5'}`}>
+          <div className="flex items-start justify-between gap-3">
+            <p>{quoteError || quoteResult?.mensagem}</p>
+            <button className="btn-ghost p-1 text-xs" onClick={() => { setQuoteResult(null); setQuoteError('') }}>fechar</button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 xl:grid-cols-5 gap-3 mb-6">
         <Kpi label="Valor atual da carteira" value={fmtBRL(totals.value)} tone="invest" icon={<TrendingUp />} />
@@ -222,7 +259,18 @@ export function InvestmentsPage() {
                           <p className="text-[11px] text-muted">
                             {r.inv.institution ?? ''}
                             {r.lastSnap ? ` · valor atualizado em ${fmtDate(r.lastSnap.date)}` : ' · sem atualização de valor'}
+                            {r.holds.length > 0 && ' · cotação automática'}
                           </p>
+                          {r.holds.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {r.holds.map((h) => (
+                                <span key={h.id} className={`text-[11px] rounded-md px-1.5 py-0.5 tabular-nums ${h.quoteError ? 'bg-expense/10 text-expense' : 'bg-surface-2 text-muted'}`} title={h.quoteError ?? (h.pricedAt ? `cotação de ${fmtDate(h.pricedAt)}` : 'ainda sem cotação')}>
+                                  <span className="font-medium text-text">{h.ticker}</span> {fmtQty(h.quantity)}
+                                  {h.lastPrice != null && ` × ${fmtBRL(h.lastPrice)}`}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -240,7 +288,8 @@ export function InvestmentsPage() {
                         <button className="btn-ghost p-1.5" title="Aporte" onClick={() => setMovFor({ inv: r.inv, type: 'aporte' })}><ArrowDownToLine size={14} /></button>
                         <button className="btn-ghost p-1.5" title="Resgate" onClick={() => setMovFor({ inv: r.inv, type: 'resgate' })}><ArrowUpFromLine size={14} /></button>
                         <button className="btn-ghost p-1.5" title="Provento (dividendo / rendimento)" onClick={() => setMovFor({ inv: r.inv, type: 'dividendo' })}><Percent size={14} /></button>
-                        <button className="btn-ghost p-1.5" title="Atualizar valor atual" onClick={() => setSnapFor(r.inv)}><RefreshCw size={14} /></button>
+                        <button className="btn-ghost p-1.5" title="Atualizar valor atual (manual)" onClick={() => setSnapFor(r.inv)}><RefreshCw size={14} /></button>
+                        <button className={`btn-ghost p-1.5 ${r.holds.length ? 'text-invest' : ''}`} title="Posições (ticker e quantidade) para cotação automática" onClick={() => setHoldFor(r.inv)}><Layers size={14} /></button>
                         <button className="btn-ghost p-1.5" title="Editar" onClick={() => { setEditing(r.inv); setOpen(true) }}><Pencil size={14} /></button>
                         <button className="btn-ghost p-1.5 hover:text-expense" title="Excluir" onClick={() => setToDelete(r.inv)}><Trash2 size={14} /></button>
                       </div>
@@ -286,6 +335,7 @@ export function InvestmentsPage() {
         accounts={accounts.filter((a) => !a.archived).map((a) => ({ id: a.id!, name: a.name }))}
       />
       <SnapshotModal open={!!snapFor} onClose={() => setSnapFor(null)} inv={snapFor} currentValue={snapFor ? investmentValue(snapFor, movements, snapshots) : 0} />
+      <HoldingsModal open={!!holdFor} onClose={() => setHoldFor(null)} inv={holdFor} holdings={holdFor ? holdings.filter((h) => h.investmentId === holdFor.id) : []} onSaved={refreshQuotes} />
       <Confirm open={!!toDelete} onClose={() => setToDelete(null)} onConfirm={() => toDelete && remove(toDelete)} message={<>Excluir “{toDelete?.name}” e todo o seu histórico de aportes e valores?</>} />
       <Confirm open={!!movDelete} onClose={() => setMovDelete(null)} onConfirm={() => movDelete?.id && repo.investmentMovements.delete(movDelete.id)} message="Excluir esta movimentação?" />
     </>
@@ -441,6 +491,89 @@ function SnapshotModal({ open, onClose, inv, currentValue }: { open: boolean; on
         <p className="text-xs text-muted">Informe quanto este investimento vale hoje (saldo na corretora). Aportes e resgates feitos depois desta data ajustam o valor automaticamente.</p>
         <Field label="Valor de mercado"><MoneyInput value={value} onChange={setValue} autoFocus /></Field>
         <Field label="Data da cotação"><input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+      </div>
+    </Modal>
+  )
+}
+
+const fmtQty = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 6 })
+
+type HoldingDraft = { key: number; id?: number; ticker: string; quantity: string }
+
+function HoldingsModal({ open, onClose, inv, holdings, onSaved }: { open: boolean; onClose: () => void; inv: Investment | null; holdings: InvestmentHolding[]; onSaved: () => void }) {
+  const [drafts, setDrafts] = useState<HoldingDraft[]>([])
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+  const [lastOpen, setLastOpen] = useState(false)
+  if (open !== lastOpen) {
+    setLastOpen(open)
+    if (open) {
+      const initial = holdings.map((h, i) => ({ key: i, id: h.id, ticker: h.ticker, quantity: fmtQty(h.quantity) }))
+      setDrafts(initial.length ? initial : [{ key: 0, ticker: inv?.ticker?.split(/[,\s]+/)[0] ?? '', quantity: '' }])
+      setErr('')
+    }
+  }
+  const nextKey = () => (drafts.length ? Math.max(...drafts.map((d) => d.key)) + 1 : 0)
+  const setDraft = (key: number, patch: Partial<HoldingDraft>) => setDrafts((ds) => ds.map((d) => (d.key === key ? { ...d, ...patch } : d)))
+
+  async function save() {
+    if (!inv?.id) return
+    const rows = drafts.map((d) => ({ ...d, ticker: d.ticker.trim().toUpperCase(), qty: Number(d.quantity.replace(/\./g, '').replace(',', '.')) })).filter((d) => d.ticker || d.quantity.trim())
+    for (const r of rows) {
+      if (!/^[A-Z0-9.-]{1,20}$/.test(r.ticker)) return setErr(`Código inválido: "${r.ticker || '(vazio)'}". Use o código da B3, como ITSA4 ou LVBI11.`)
+      if (!(r.qty >= 0) || Number.isNaN(r.qty)) return setErr(`Informe a quantidade de ${r.ticker}.`)
+    }
+    const tickers = rows.map((r) => r.ticker)
+    if (new Set(tickers).size !== tickers.length) return setErr('Tem código repetido. Some as quantidades numa linha só.')
+    setSaving(true)
+    setErr('')
+    try {
+      const keep = new Set<number>()
+      for (const r of rows) {
+        const saved = await repo.investmentHoldings.upsert({ investmentId: inv.id, ticker: r.ticker, quantity: r.qty }, 'investment_id,ticker')
+        if (saved.id) keep.add(saved.id)
+      }
+      const gone = holdings.filter((h) => h.id && !keep.has(h.id)).map((h) => h.id!)
+      if (gone.length) await repo.investmentHoldings.bulkDelete(gone)
+      onClose()
+      if (rows.length) onSaved()
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Posições · ${inv?.name ?? ''}`}
+      footer={<><button className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={saving} onClick={save}>{saving ? 'Salvando…' : 'Salvar e cotar'}</button></>}
+    >
+      <div className="space-y-4">
+        <p className="text-xs text-muted">
+          Informe o código na B3 e quantas cotas você tem de cada papel. A cotação é buscada automaticamente todo dia útil depois do fechamento
+          (e quando você clicar em “Atualizar cotações”), e o valor de mercado deste investimento passa a ser quantidade × preço.
+          Ao comprar ou vender, registre o aporte/resgate normalmente e ajuste a quantidade aqui.
+        </p>
+        <div className="space-y-2">
+          <div className="grid grid-cols-[1fr_1fr_auto] gap-2 text-[11px] text-muted px-1"><span>Código</span><span>Quantidade</span><span className="w-8" /></div>
+          {drafts.map((d) => (
+            <div key={d.key} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+              <input className="input uppercase" placeholder="ITSA4" value={d.ticker} onChange={(e) => setDraft(d.key, { ticker: e.target.value.toUpperCase() })} />
+              <input className="input" inputMode="decimal" placeholder="0" value={d.quantity} onChange={(e) => setDraft(d.key, { quantity: e.target.value })} />
+              <button className="btn-ghost p-1.5 hover:text-expense w-8" title="Remover" onClick={() => setDrafts((ds) => ds.filter((x) => x.key !== d.key))}><Trash2 size={14} /></button>
+            </div>
+          ))}
+          <button className="btn-secondary text-xs" onClick={() => setDrafts((ds) => [...ds, { key: nextKey(), ticker: '', quantity: '' }])}><Plus size={14} /> Adicionar papel</button>
+        </div>
+        {holdings.some((h) => h.quoteError) && (
+          <ul className="text-xs text-expense space-y-0.5">
+            {holdings.filter((h) => h.quoteError).map((h) => <li key={h.id}>{h.quoteError}</li>)}
+          </ul>
+        )}
+        {err && <p className="text-sm text-expense">{err}</p>}
       </div>
     </Modal>
   )

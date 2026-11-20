@@ -60,6 +60,19 @@ Se estiver subindo o projeto do zero: aplique as migrations (`accounts_open_fina
 
 Se apagar no app um lançamento dos últimos 7 dias, ele volta na próxima sincronização (essa janela é reconferida). Quando um banco pede reconexão, o item aparece como "reconectar no Meu Pluggy".
 
+- **Renda variável**: ações, FIIs e ETFs que o banco lista viram **posições** (ticker + quantidade) num investimento "Renda variável · Banco" (ou no seu investimento de ações/FIIs daquela instituição, se já existir). O banco costuma mandar só o ticker, sem valor nem quantidade: a sincronização avisa quais papéis precisam de quantidade, e o valor vem das cotações (abaixo).
+
+## Cotações automáticas (ações, FIIs, ETFs)
+
+A B3 não tem API gratuita de cotações, então o app usa o endpoint público do Yahoo Finance (atraso de ~15 min). Em **Investimentos**, o botão **Posições** (ícone de camadas) de cada investimento guarda os papéis e quantidades; a Edge Function `supabase/functions/update-quotes` busca a cotação de cada ticker e grava quantidade × preço como valor de mercado do dia.
+
+- Roda sozinha pelo `pg_cron` todo dia útil às 18h30 (horário de Brasília), depois do fechamento, e na hora pelo botão **Atualizar cotações**.
+- Códigos da B3 (`ITSA4`, `LVBI11`) ganham o sufixo `.SA` automaticamente; outros códigos vão como estão para o Yahoo (`AAPL`, `BTC-USD`), na moeda original.
+- Ao comprar ou vender, registre o aporte/resgate normalmente e ajuste a quantidade em Posições. Um investimento com posição sem quantidade não tem o valor atualizado até você preencher.
+- Se um ticker falhar, a posição mostra o erro e o investimento mantém o último valor.
+
+Subindo do zero: aplique a migration `investment_holdings` (cria a tabela e o agendamento, reaproveitando o segredo da sync-banks) e faça o deploy com `supabase functions deploy update-quotes --no-verify-jwt`.
+
 ## Importando extratos
 
 1. Exporte o extrato do banco em **CSV** ou **OFX** (Nubank, Inter, Itaú, BB, Bradesco, C6, XP etc.).

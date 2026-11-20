@@ -68,8 +68,17 @@ export interface Investment {
   id: number
   name: string
   type: string
+  institution: string | null
   externalId: string | null
   archived: boolean
+}
+
+/** Posição de renda variável (ticker + quantidade) de um investimento */
+export interface Holding {
+  id: number
+  investmentId: number
+  ticker: string
+  quantity: number
 }
 
 export interface OpenFinanceItem {
@@ -92,6 +101,23 @@ function toAccount(r: Row): Account {
     archived: Boolean(r.archived),
     externalId: (r.external_id as string | null) ?? null,
   }
+}
+
+const INVESTMENT_COLUMNS = 'id, name, type, institution, external_id, archived'
+
+function toInvestment(r: Row): Investment {
+  return {
+    id: Number(r.id),
+    name: String(r.name),
+    type: String(r.type),
+    institution: (r.institution as string | null) ?? null,
+    externalId: (r.external_id as string | null) ?? null,
+    archived: Boolean(r.archived),
+  }
+}
+
+function toHolding(r: Row): Holding {
+  return { id: Number(r.id), investmentId: Number(r.investment_id), ticker: String(r.ticker), quantity: Number(r.quantity) }
 }
 
 export class Db {
@@ -244,14 +270,8 @@ export class Db {
   // ---------- investimentos ----------
 
   async investments(): Promise<Investment[]> {
-    const rows = await this.q<Row[]>((sb) => sb.from('investments').select('id, name, type, external_id, archived').eq('user_id', this.userId).order('id'))
-    return rows.map((r) => ({
-      id: Number(r.id),
-      name: String(r.name),
-      type: String(r.type),
-      externalId: (r.external_id as string | null) ?? null,
-      archived: Boolean(r.archived),
-    }))
+    const rows = await this.q<Row[]>((sb) => sb.from('investments').select(INVESTMENT_COLUMNS).eq('user_id', this.userId).order('id'))
+    return rows.map(toInvestment)
   }
 
   async createInvestment(i: { name: string; type: string; institution: string | null; ticker?: string | null; externalId: string }): Promise<Investment> {
@@ -259,10 +279,28 @@ export class Db {
       sb
         .from('investments')
         .insert({ user_id: this.userId, name: i.name, type: i.type, institution: i.institution, ticker: i.ticker ?? null, external_id: i.externalId, synced_at: new Date().toISOString() })
-        .select('id, name, type, external_id, archived')
+        .select(INVESTMENT_COLUMNS)
         .single(),
     )
-    return { id: Number(row.id), name: String(row.name), type: String(row.type), externalId: (row.external_id as string | null) ?? null, archived: Boolean(row.archived) }
+    return toInvestment(row)
+  }
+
+  /** Posições de renda variável de todos os investimentos do usuário */
+  async holdings(): Promise<Holding[]> {
+    const rows = await this.all<Row>((sb) => sb.from('investment_holdings').select('id, investment_id, ticker, quantity').eq('user_id', this.userId).order('id'))
+    return rows.map(toHolding)
+  }
+
+  /** Cria ou atualiza a posição (ticker) de um investimento */
+  async upsertHolding(investmentId: number, ticker: string, quantity: number): Promise<Holding> {
+    const row = await this.q<Row>((sb) =>
+      sb
+        .from('investment_holdings')
+        .upsert({ user_id: this.userId, investment_id: investmentId, ticker, quantity }, { onConflict: 'investment_id,ticker' })
+        .select('id, investment_id, ticker, quantity')
+        .single(),
+    )
+    return toHolding(row)
   }
 
   async updateInvestment(id: number, patch: { archived?: boolean; syncedAt?: string | null; institution?: string | null; externalId?: string | null }) {

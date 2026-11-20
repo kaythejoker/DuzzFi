@@ -9,6 +9,7 @@ export const useRecurringExpenses = () => useStore('recurringExpenses')
 export const useInvestments = () => useStore('investments')
 export const useInvestmentMovements = () => useStore('investmentMovements')
 export const useInvestmentSnapshots = () => useStore('investmentSnapshots')
+export const useInvestmentHoldings = () => useStore('investmentHoldings')
 export const useAssets = () => useStore('assets')
 export const useAssetValuations = () => useStore('assetValuations')
 

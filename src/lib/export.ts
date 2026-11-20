@@ -81,6 +81,7 @@ const FKS: Partial<Record<TableName, Record<string, TableName>>> = {
   transactions: { categoryId: 'categories', accountId: 'accounts', toAccountId: 'accounts', incomeSourceId: 'incomeSources', recurringExpenseId: 'recurringExpenses' },
   investmentMovements: { investmentId: 'investments' },
   investmentSnapshots: { investmentId: 'investments' },
+  investmentHoldings: { investmentId: 'investments' },
   assetValuations: { assetId: 'assets' },
 }
 
@@ -110,7 +111,7 @@ export async function restoreBackup(data: Backup, mode: RestoreMode, onProgress?
       }
       return copy
     })
-    const required = name === 'investmentMovements' || name === 'investmentSnapshots' ? 'investmentId' : name === 'assetValuations' ? 'assetId' : null
+    const required = name === 'investmentMovements' || name === 'investmentSnapshots' || name === 'investmentHoldings' ? 'investmentId' : name === 'assetValuations' ? 'assetId' : null
     const keepIdx = prepared.map((p, i) => (required && p[required] == null ? -1 : i)).filter((i) => i >= 0)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const saved = await (repo[name] as any).bulkAdd(keepIdx.map((i) => prepared[i]))

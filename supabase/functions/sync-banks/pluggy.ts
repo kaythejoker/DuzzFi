@@ -83,7 +83,10 @@ export interface PluggyInvestment {
   balance?: number | null
   amount?: number | null
   value?: number | null
+  /** quantidade de cotas/ações (renda variável; nem todo banco informa) */
+  quantity?: number | null
   status?: string | null
+  /** ticker (BBAS3, LVBI11) na renda variável */
   code?: string | null
   issuer?: string | null
   currencyCode?: string | null

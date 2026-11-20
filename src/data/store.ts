@@ -7,6 +7,7 @@ import type {
   Category,
   IncomeSource,
   Investment,
+  InvestmentHolding,
   InvestmentMovement,
   InvestmentSnapshot,
   RecurringExpense,
@@ -24,6 +25,7 @@ export interface Tables {
   investments: Investment
   investmentMovements: InvestmentMovement
   investmentSnapshots: InvestmentSnapshot
+  investmentHoldings: InvestmentHolding
   assets: Asset
   assetValuations: AssetValuation
 }
@@ -40,6 +42,7 @@ export const TABLE_NAMES: TableName[] = [
   'investments',
   'investmentMovements',
   'investmentSnapshots',
+  'investmentHoldings',
   'assets',
   'assetValuations',
 ]
@@ -53,6 +56,7 @@ const DB_NAME: Record<TableName, string> = {
   investments: 'investments',
   investmentMovements: 'investment_movements',
   investmentSnapshots: 'investment_snapshots',
+  investmentHoldings: 'investment_holdings',
   assets: 'assets',
   assetValuations: 'asset_valuations',
 }
@@ -63,7 +67,7 @@ const DELETE_EFFECTS: Partial<Record<TableName, TableName[]>> = {
   categories: ['transactions', 'incomeSources', 'recurringExpenses'],
   incomeSources: ['transactions'],
   recurringExpenses: ['transactions'],
-  investments: ['investmentMovements', 'investmentSnapshots'],
+  investments: ['investmentMovements', 'investmentSnapshots', 'investmentHoldings'],
   assets: ['assetValuations'],
 }
 
@@ -95,7 +99,7 @@ function fromDb<T>(row: Record<string, unknown>): T {
   for (const [k, v] of Object.entries(row)) {
     if (k === 'user_id' || v === null) continue
     // numeric pode vir como string dependendo da precisão
-    out[toCamel(k)] = typeof v === 'string' && /^(amount|value|budget|initial_balance|expected_monthly|ownership_pct|bank_balance|credit_limit|current_bill)$/.test(k) ? Number(v) : v
+    out[toCamel(k)] = typeof v === 'string' && /^(amount|value|budget|initial_balance|expected_monthly|ownership_pct|bank_balance|credit_limit|current_bill|quantity|last_price)$/.test(k) ? Number(v) : v
   }
   return out as T
 }
@@ -113,6 +117,7 @@ const emptyState = (): State => ({
   investments: [],
   investmentMovements: [],
   investmentSnapshots: [],
+  investmentHoldings: [],
   assets: [],
   assetValuations: [],
   status: 'idle',
@@ -295,6 +300,7 @@ export const repo = {
   investments: table('investments'),
   investmentMovements: table('investmentMovements'),
   investmentSnapshots: table('investmentSnapshots'),
+  investmentHoldings: table('investmentHoldings'),
   assets: table('assets'),
   assetValuations: table('assetValuations'),
 }
