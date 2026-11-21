@@ -1,14 +1,14 @@
 // Fica no Shell: ao entrar no app avalia os checkpoints de patrimônio que chegaram, comemora meta batida
-// (inclusive antes da hora) e mostra o lembrete quando o próximo checkpoint está perto.
+// (inclusive antes da hora e no marco inicial, o dia em que a regra começou) e mostra o lembrete quando o próximo checkpoint está perto.
 
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarClock, PartyPopper, Target, X } from 'lucide-react'
-import { celebrate, partyFor } from '../lib/celebration'
+import { celebrate, partyFor, startParty } from '../lib/celebration'
 import { useWealthGoal } from '../hooks/useWealthGoal'
 import { repo, useStore } from '../data/store'
 import { netWorthAt } from '../lib/calc'
-import { planEvaluations, reminderFor, type Reminder } from '../lib/wealthGoal'
+import { ageOn, planEvaluations, reminderFor, type Reminder } from '../lib/wealthGoal'
 import { fmtBRL, fmtDate } from '../lib/format'
 
 const DISMISS_KEY = 'duzz.goal.dismissed.v1'
@@ -33,6 +33,12 @@ export function WealthGoalWatcher() {
   const { goal, stored, params, salary, today, netWorthNow, schedule } = useWealthGoal()
   const status = useStore('status')
   const busy = useRef(false)
+  // ao terminar bem uma gravação roda de novo (em erro não, para não ficar tentando em loop): o passo seguinte (ex.: marco inicial depois do ponto de partida) não se perde
+  const [round, setRound] = useState(0)
+  const release = () => {
+    busy.current = false
+    setRound((r) => r + 1)
+  }
 
   useEffect(() => {
     // só com tudo carregado: senão o patrimônio do dia sairia zerado
@@ -43,8 +49,27 @@ export function WealthGoalWatcher() {
       const start = Math.round(netWorthAt(params, goal.startDate).netWorth * 100) / 100
       repo.wealthGoals
         .update(goal.id, { startNetWorth: start })
-        .catch((e) => console.error('[metas] ponto de partida', e))
-        .finally(() => (busy.current = false))
+        .then(release, (e) => {
+          busy.current = false
+          console.error('[metas] ponto de partida', e)
+        })
+      return
+    }
+    // marco inicial: o dia em que a regra começou também é comemorado, uma vez, na primeira entrada
+    if (!stored.some((c) => c.date === goal.startDate)) {
+      busy.current = true
+      const now = new Date().toISOString()
+      const start = goal.startNetWorth
+      repo.wealthCheckpoints
+        .upsert(
+          { date: goal.startDate, age: ageOn(goal.birthDate, goal.startDate), target: start, annualSalary: salary, netWorth: start, met: true, evaluatedAt: now, celebratedAt: now },
+          'user_id,date',
+        )
+        .then(() => celebrate(startParty(goal.startDate, start, schedule[0])))
+        .then(release, (e) => {
+          busy.current = false
+          console.error('[metas] marco inicial', e)
+        })
       return
     }
     const plan = planEvaluations({ schedule, stored, today, salary, netWorthOn: (d) => netWorthAt(params, d).netWorth })
@@ -56,9 +81,12 @@ export function WealthGoalWatcher() {
       const c = plan.celebrations[plan.celebrations.length - 1]
       if (c) celebrate(partyFor(c.checkpoint, c.netWorth, c.early))
     })()
-      .catch((e) => console.error('[metas] avaliação dos checkpoints', e))
-      .finally(() => (busy.current = false))
-  }, [status, goal, stored, params, salary, today, schedule])
+      .then(release, (e) => {
+        busy.current = false
+        console.error('[metas] avaliação dos checkpoints', e)
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [round, status, goal, stored, params, salary, today, schedule])
 
   const reminder = goal ? reminderFor(schedule, stored, today, netWorthNow) : null
   return reminder ? <ReminderBanner reminder={reminder} /> : null

@@ -45,3 +45,15 @@ export function partyFor(cp: Pick<PlannedCheckpoint, 'date' | 'age' | 'target'>,
     ],
   }
 }
+
+/** Comemoração do marco inicial: o dia em que a regra começou */
+export function startParty(date: string, netWorth: number, next?: Pick<PlannedCheckpoint, 'date' | 'age' | 'target'>): Party {
+  return {
+    title: VICTORY_TITLE,
+    subtitle: `Marco inicial: a regra começa hoje, ${fmtDate(date)}.${next ? ` Próximo checkpoint: ${next.age} anos, em ${fmtDate(next.date)}.` : ''}`,
+    details: [
+      { label: 'Ponto de partida', value: fmtBRL(netWorth) },
+      ...(next ? [{ label: `Meta dos ${next.age}`, value: fmtBRL(next.target) }] : []),
+    ],
+  }
+}

@@ -6,7 +6,7 @@ import { CalendarClock, Flag, PartyPopper, Settings2, Target, TrendingUp } from 
 import { CartesianGrid, ComposedChart, Legend, Line, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Badge, Card, EmptyState, Field, Kpi, Modal, MoneyInput, Segmented } from './ui'
 import { axisStyle, gridStroke, moneyTick, tooltipStyle } from './charts'
-import { celebrate, partyFor } from '../lib/celebration'
+import { celebrate, partyFor, startParty } from '../lib/celebration'
 import { useWealthGoal } from '../hooks/useWealthGoal'
 import { repo } from '../data/store'
 import { netWorthAt } from '../lib/calc'
@@ -193,6 +193,26 @@ function GoalView({
               </tr>
             </thead>
             <tbody>
+              {byDate.get(goal.startDate) && (
+                <tr>
+                  <td className="tabular-nums whitespace-nowrap">{fmtDate(goal.startDate)}</td>
+                  <td>{ageOn(goal.birthDate, goal.startDate)}</td>
+                  <td className="text-muted whitespace-nowrap">marco inicial</td>
+                  <td className="text-right tabular-nums">—</td>
+                  <td className="text-right tabular-nums">{fmtBRL(goal.startNetWorth ?? 0)}</td>
+                  <td className="whitespace-nowrap">
+                    <Badge color="#2fd18b">Começou</Badge>
+                    <button
+                      className="btn-ghost p-1 ml-1 align-middle"
+                      title="Comemorar de novo"
+                      aria-label="Comemorar de novo"
+                      onClick={() => celebrate(startParty(goal.startDate, goal.startNetWorth ?? 0, schedule[0]))}
+                    >
+                      <PartyPopper size={14} />
+                    </button>
+                  </td>
+                </tr>
+              )}
               {schedule.map((p) => (
                 <CheckpointRow key={p.date} p={p} s={byDate.get(p.date)} today={today} reserve={goal.emergencyReserve} firstAnchor={anchors[0]} isNext={p.date === next?.date} />
               ))}
