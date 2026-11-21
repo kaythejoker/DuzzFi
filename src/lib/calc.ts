@@ -206,40 +206,39 @@ export interface NetWorthPoint {
   netWorth: number
 }
 
-export function netWorthSeries(
-  params: {
-    accounts: Account[]
-    txs: Transaction[]
-    investments: Investment[]
-    movements: InvestmentMovement[]
-    snapshots: InvestmentSnapshot[]
-    assets: Asset[]
-    valuations: AssetValuation[]
-  },
-  endYM: string,
-  count: number,
-): NetWorthPoint[] {
-  const months = lastMonths(endYM, count)
-  return months.map((ym) => {
-    const until = endOfYM(ym)
-    const cash = params.accounts
-      .filter((a) => !a.archived && a.type !== 'credit_card')
-      .reduce((s, a) => s + accountBalance(a, params.txs, until), 0)
-    const cardDebt = params.accounts
-      .filter((a) => !a.archived && a.type === 'credit_card')
-      .reduce((s, a) => s + Math.max(0, -accountBalance(a, params.txs, until)), 0)
-    const investments = params.investments
-      .filter((i) => !i.archived)
-      .reduce((s, i) => s + investmentValue(i, params.movements, params.snapshots, until), 0)
-    const assets = params.assets
-      .filter((a) => !a.archived && a.kind === 'ativo')
-      .reduce((s, a) => s + assetValue(a, params.valuations, until), 0)
-    const liabilities =
-      params.assets
-        .filter((a) => !a.archived && a.kind === 'passivo')
-        .reduce((s, a) => s + assetValue(a, params.valuations, until), 0) + cardDebt
-    return { ym, cash, investments, assets, liabilities, netWorth: cash + investments + assets - liabilities }
-  })
+export interface NetWorthParams {
+  accounts: Account[]
+  txs: Transaction[]
+  investments: Investment[]
+  movements: InvestmentMovement[]
+  snapshots: InvestmentSnapshot[]
+  assets: Asset[]
+  valuations: AssetValuation[]
+}
+
+export function netWorthSeries(params: NetWorthParams, endYM: string, count: number): NetWorthPoint[] {
+  return lastMonths(endYM, count).map((ym) => ({ ym, ...netWorthAt(params, endOfYM(ym)) }))
+}
+
+/** Patrimônio líquido no fim do dia `until` (yyyy-MM-dd) */
+export function netWorthAt(params: NetWorthParams, until: string): Omit<NetWorthPoint, 'ym'> {
+  const cash = params.accounts
+    .filter((a) => !a.archived && a.type !== 'credit_card')
+    .reduce((s, a) => s + accountBalance(a, params.txs, until), 0)
+  const cardDebt = params.accounts
+    .filter((a) => !a.archived && a.type === 'credit_card')
+    .reduce((s, a) => s + Math.max(0, -accountBalance(a, params.txs, until)), 0)
+  const investments = params.investments
+    .filter((i) => !i.archived)
+    .reduce((s, i) => s + investmentValue(i, params.movements, params.snapshots, until), 0)
+  const assets = params.assets
+    .filter((a) => !a.archived && a.kind === 'ativo')
+    .reduce((s, a) => s + assetValue(a, params.valuations, until), 0)
+  const liabilities =
+    params.assets
+      .filter((a) => !a.archived && a.kind === 'passivo')
+      .reduce((s, a) => s + assetValue(a, params.valuations, until), 0) + cardDebt
+  return { cash, investments, assets, liabilities, netWorth: cash + investments + assets - liabilities }
 }
 
 export function pctChange(curr: number, prev: number) {

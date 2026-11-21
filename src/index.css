@@ -169,3 +169,83 @@ input[type="radio"] {
 .table tbody tr:hover td {
   @apply bg-papel/[0.03];
 }
+
+/* ---------- comemoração: balões subindo (Celebration.tsx) ---------- */
+@keyframes balloon-rise {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0;
+  }
+  6% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--drift, 0px), -135vh, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes balloon-sway {
+  0%,
+  100% {
+    transform: rotate(-7deg);
+  }
+  50% {
+    transform: rotate(7deg);
+  }
+}
+
+.balloon {
+  position: absolute;
+  bottom: -180px;
+  animation: balloon-rise var(--dur, 10s) cubic-bezier(0.37, 0, 0.63, 1) var(--delay, 0s) infinite;
+  will-change: transform;
+}
+
+.balloon-body {
+  position: relative;
+  display: block;
+  width: var(--size, 56px);
+  height: calc(var(--size, 56px) * 1.22);
+  border-radius: 50% 50% 48% 48% / 56% 56% 44% 44%;
+  background:
+    radial-gradient(circle at 32% 28%, rgb(255 255 255 / 0.55), transparent 24%),
+    var(--color, #8a00ff);
+  box-shadow: inset -8px -12px 18px rgb(0 0 0 / 0.22);
+  transform-origin: 50% 130%;
+  animation: balloon-sway 3.2s ease-in-out infinite;
+}
+
+/* nó */
+.balloon-body::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  transform: translateX(-50%);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 7px solid var(--color, #8a00ff);
+}
+
+/* barbante */
+.balloon-body::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 6px);
+  width: 1px;
+  height: calc(var(--size, 56px) * 1.5);
+  background: rgb(255 255 255 / 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .balloon {
+    animation: none;
+    bottom: auto;
+    top: var(--top, 50%);
+  }
+  .balloon-body {
+    animation: none;
+  }
+}

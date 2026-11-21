@@ -12,6 +12,8 @@ import type {
   InvestmentSnapshot,
   RecurringExpense,
   Transaction,
+  WealthCheckpoint,
+  WealthGoal,
 } from '../db/types'
 
 // ---------- tabelas ----------
@@ -28,6 +30,8 @@ export interface Tables {
   investmentHoldings: InvestmentHolding
   assets: Asset
   assetValuations: AssetValuation
+  wealthGoals: WealthGoal
+  wealthCheckpoints: WealthCheckpoint
 }
 
 export type TableName = keyof Tables
@@ -45,6 +49,8 @@ export const TABLE_NAMES: TableName[] = [
   'investmentHoldings',
   'assets',
   'assetValuations',
+  'wealthGoals',
+  'wealthCheckpoints',
 ]
 
 const DB_NAME: Record<TableName, string> = {
@@ -59,6 +65,8 @@ const DB_NAME: Record<TableName, string> = {
   investmentHoldings: 'investment_holdings',
   assets: 'assets',
   assetValuations: 'asset_valuations',
+  wealthGoals: 'wealth_goals',
+  wealthCheckpoints: 'wealth_checkpoints',
 }
 
 /** Tabelas cujas linhas mudam quando uma linha desta tabela é excluída (FK set null / cascade) */
@@ -99,7 +107,7 @@ function fromDb<T>(row: Record<string, unknown>): T {
   for (const [k, v] of Object.entries(row)) {
     if (k === 'user_id' || v === null) continue
     // numeric pode vir como string dependendo da precisão
-    out[toCamel(k)] = typeof v === 'string' && /^(amount|value|budget|initial_balance|expected_monthly|ownership_pct|bank_balance|credit_limit|current_bill|quantity|last_price)$/.test(k) ? Number(v) : v
+    out[toCamel(k)] = typeof v === 'string' && /^(amount|value|budget|initial_balance|expected_monthly|ownership_pct|bank_balance|credit_limit|current_bill|quantity|last_price|emergency_reserve|annual_salary|start_net_worth|target|net_worth)$/.test(k) ? Number(v) : v
   }
   return out as T
 }
@@ -120,6 +128,8 @@ const emptyState = (): State => ({
   investmentHoldings: [],
   assets: [],
   assetValuations: [],
+  wealthGoals: [],
+  wealthCheckpoints: [],
   status: 'idle',
 })
 
@@ -303,4 +313,6 @@ export const repo = {
   investmentHoldings: table('investmentHoldings'),
   assets: table('assets'),
   assetValuations: table('assetValuations'),
+  wealthGoals: table('wealthGoals'),
+  wealthCheckpoints: table('wealthCheckpoints'),
 }

@@ -16,6 +16,8 @@ import clsx from 'clsx'
 import { useState, type ReactNode } from 'react'
 import { BrandMark, Eyebrow } from './Brand'
 import { getSession, signOut } from '../data/session'
+import { CelebrationLayer } from './Celebration'
+import { WealthGoalWatcher } from './WealthGoalWatcher'
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -97,9 +99,11 @@ export function Shell() {
           </div>
         </header>
         <main className="flex-1 p-4 sm:p-6 lg:p-8 pb-[calc(1rem+env(safe-area-inset-bottom))] max-w-[1400px] w-full mx-auto">
+          <WealthGoalWatcher />
           <Outlet />
         </main>
       </div>
+      <CelebrationLayer />
     </div>
   )
 }

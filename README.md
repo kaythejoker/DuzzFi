@@ -33,7 +33,7 @@ Na primeira entrada o app cria as categorias padrão e uma conta "Conta principa
 | Fontes de renda | CLT, PJ, sociedade, empresa, freela, dividendos, aluguel… com valor esperado vs recebido e dia em que cai |
 | Investimentos | Carteira por tipo, aportes, resgates, proventos, atualização do valor de mercado e rentabilidade |
 | Patrimônio & Contas | Contas bancárias, cartões de crédito (fatura, limite, vencimento), participações em empresas/sociedades (com % e valuation), bens e dívidas |
-| Crescimento | Evolução do patrimônio líquido, renda por tipo de fonte, taxa de poupança, aportes e resumo por ano |
+| Crescimento | Evolução do patrimônio líquido, renda por tipo de fonte, taxa de poupança, aportes, metas de patrimônio por idade (checkpoint em cada aniversário, com lembrete e comemoração) e resumo por ano |
 | Importar / Exportar | Bancos conectados via Open Finance, importação de extrato CSV/OFX, backup JSON, exportação CSV e restauração |
 
 ## Open Finance: transações dos bancos entrando sozinhas

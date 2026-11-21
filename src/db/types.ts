@@ -149,6 +149,42 @@ export interface InvestmentMovement {
   notes?: string
 }
 
+/** Marco da regra de patrimônio: aos `age` anos, reserva + `multiple` × salário anual */
+export interface WealthGoalAnchor {
+  age: number
+  multiple: number
+}
+
+/** Regra de patrimônio por idade, com checkpoint em cada aniversário */
+export interface WealthGoal {
+  id?: number
+  birthDate: string
+  emergencyReserve: number
+  /** salário anual da regra; vazio = fontes CLT/PJ ativas × 12 */
+  annualSalary?: number
+  /** dia em que a regra começou a valer */
+  startDate: string
+  /** patrimônio líquido nesse dia (ponto de partida até o primeiro marco) */
+  startNetWorth?: number
+  anchors: WealthGoalAnchor[]
+  createdAt?: string
+}
+
+/** Checkpoint avaliado (aniversário): meta, patrimônio no dia e comemoração */
+export interface WealthCheckpoint {
+  id?: number
+  date: string
+  age: number
+  target: number
+  annualSalary?: number
+  netWorth?: number
+  met?: boolean
+  /** dia em que o patrimônio passou da meta antes da data */
+  hitEarlyAt?: string
+  evaluatedAt?: string
+  celebratedAt?: string
+}
+
 /** Posição de renda variável dentro de um investimento: ticker + quantidade. A cotação é buscada automaticamente. */
 export interface InvestmentHolding {
   id?: number

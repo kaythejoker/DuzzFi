@@ -12,6 +12,8 @@ export const useInvestmentSnapshots = () => useStore('investmentSnapshots')
 export const useInvestmentHoldings = () => useStore('investmentHoldings')
 export const useAssets = () => useStore('assets')
 export const useAssetValuations = () => useStore('assetValuations')
+export const useWealthGoals = () => useStore('wealthGoals')
+export const useWealthCheckpoints = () => useStore('wealthCheckpoints')
 
 export function useById<T extends { id?: number }>(list: T[]) {
   return useMemo(() => {
